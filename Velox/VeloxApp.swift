@@ -13,5 +13,8 @@ struct VeloxApp: App {
         WindowGroup {
             ContentView()
         }
+        .commands {
+            VeloxCommands()
+        }
     }
 }
