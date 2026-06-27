@@ -62,60 +62,60 @@ struct ServerManagerView: View {
             )
         }
         .confirmationDialog("Open SSH", isPresented: $showsOpenChoice, titleVisibility: .visible) {
-            Button("当前窗口打开") {
-                rememberOpenPreference("current")
-                openPendingProfile(inNewWindow: false)
-            }
+                    Button("Open in Current Window") {
+                        rememberOpenPreference("current")
+                        openPendingProfile(inNewWindow: false)
+                    }
 
-            Button("新建窗口打开") {
-                rememberOpenPreference("new")
-                openPendingProfile(inNewWindow: true)
-            }
+                    Button("Open in New Window") {
+                        rememberOpenPreference("new")
+                        openPendingProfile(inNewWindow: true)
+                    }
 
-            Button("取消", role: .cancel) {
-                pendingOpenProfile = nil
-                pendingOpenPassword = ""
-            }
-        } message: {
-            Text("选择双击服务器后的默认打开方式。")
-        }
-    }
-
-    private var toolbar: some View {
-        HStack(spacing: 8) {
-            managerButton("新建", icon: "plus.circle") {
-                editorMode = .create(folder: selectedFolder)
-            }
-
-            managerButton("编辑", icon: "pencil") {
-                if let selectedProfile {
-                    editorMode = .edit(selectedProfile)
+                    Button("Cancel", role: .cancel) {
+                        pendingOpenProfile = nil
+                        pendingOpenPassword = ""
+                    }
+                } message: {
+                    Text("Choose the default action when double-clicking a server.")
                 }
             }
-            .disabled(selectedProfile == nil)
 
-            managerButton("克隆", icon: "doc.on.doc") {
-                cloneSelectedProfile()
-            }
-            .disabled(selectedProfile == nil)
+            private var toolbar: some View {
+                HStack(spacing: 8) {
+                    managerButton("New", icon: "plus.circle") {
+                        editorMode = .create(folder: selectedFolder)
+                    }
 
-            managerButton("删除", icon: "trash") {
-                deleteSelectedProfile()
-            }
-            .disabled(selectedProfile == nil)
+                    managerButton("Edit", icon: "pencil") {
+                        if let selectedProfile {
+                            editorMode = .edit(selectedProfile)
+                        }
+                    }
+                    .disabled(selectedProfile == nil)
 
-            Divider()
-                .frame(height: 24)
-                .overlay(.white.opacity(0.12))
+                    managerButton("Clone", icon: "doc.on.doc") {
+                        cloneSelectedProfile()
+                    }
+                    .disabled(selectedProfile == nil)
 
-            managerButton("创建文件夹", icon: "folder.badge.plus") {
-                createFolder()
-            }
+                    managerButton("Delete", icon: "trash") {
+                        deleteSelectedProfile()
+                    }
+                    .disabled(selectedProfile == nil)
 
-            managerButton("删除文件夹", icon: "folder.badge.minus") {
-                deleteSelectedFolder()
-            }
-            .disabled(selectedFolder == "Default")
+                    Divider()
+                        .frame(height: 24)
+                        .overlay(.white.opacity(0.12))
+
+                    managerButton("New Folder", icon: "folder.badge.plus") {
+                        createFolder()
+                    }
+
+                    managerButton("Delete Folder", icon: "folder.badge.minus") {
+                        deleteSelectedFolder()
+                    }
+                    .disabled(selectedFolder == "Default")
 
             Spacer(minLength: 0)
 

@@ -25,8 +25,8 @@ struct VeloxCommands: Commands {
     @FocusedValue(\.openRemoteFolderAction) private var openRemoteFolder
 
     var body: some Commands {
-        CommandMenu("连接") {
-            Button("服务器管理") {
+        CommandMenu("Server") {
+            Button("Manager") {
                 openServerManager?()
             }
             .keyboardShortcut("p", modifiers: .command)
@@ -34,9 +34,10 @@ struct VeloxCommands: Commands {
 
             Divider()
 
-            Button("打开远程文件夹") {
+            Button("Open Remote Folder") {
                 openRemoteFolder?()
             }
+            .keyboardShortcut("f", modifiers: .command)
             .disabled(openRemoteFolder == nil)
         }
     }
