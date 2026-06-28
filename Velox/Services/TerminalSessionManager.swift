@@ -16,29 +16,29 @@ final class TerminalSessionManager: ObservableObject {
     @Published var showUploadIndicator = false
     @Published var statusMessage = "Connecting to SSH..."
     var onShellExit: (() -> Void)?
-
+    
     private enum TerminalInputEvent: Sendable {
         case send([UInt8])
         case resize(cols: Int, rows: Int)
     }
-
+    
     private var client: SSHClient?
     private var sftp: SFTPClient?
     private var shellTask: Task<Void, Never>?
     private var shellSessionID: UUID?
     private var inputContinuation: AsyncStream<TerminalInputEvent>.Continuation?
-
+    
     deinit {
         shellTask?.cancel()
         inputContinuation?.finish()
     }
-
+    
     func connect(host: String, port: Int = 22, user: String, auth: SSHAuthentication) async throws {
         try await disconnect()
-
+        
         didShellExit = false
         statusMessage = "Connecting to \(user)@\(host):\(port)..."
-
+        
         let authenticationMethod = try auth.makeCitadelMethod(username: user)
         let sshClient = try await SSHClient.connect(
             host: host,
@@ -47,7 +47,7 @@ final class TerminalSessionManager: ObservableObject {
             hostKeyValidator: .acceptAnything(),
             reconnect: .never
         )
-
+        
         sshClient.onDisconnect { [weak self] in
             guard let manager = self else { return }
             Task { @MainActor [manager] in
@@ -56,31 +56,31 @@ final class TerminalSessionManager: ObservableObject {
                 manager.statusMessage = "SSH connection disconnected"
             }
         }
-
+        
         self.client = sshClient
         self.sftp = try await sshClient.openSFTP()
         self.isConnected = true
         self.remoteTitlePrefix = "\(user)@\(host)"
         self.statusMessage = "SSH connected"
-
+        
         try await fetchRemoteFiles(at: ".")
     }
-
+    
     func disconnect() async throws {
         shellTask?.cancel()
         shellTask = nil
         shellSessionID = nil
         inputContinuation?.finish()
         inputContinuation = nil
-
+        
         if let sftp {
             try? await sftp.close()
         }
-
+        
         if let client {
             try? await client.close()
         }
-
+        
         client = nil
         sftp = nil
         isConnected = false
@@ -91,12 +91,12 @@ final class TerminalSessionManager: ObservableObject {
         remoteTitlePrefix = nil
         statusMessage = "SSH connection closed"
     }
-
+    
     func fetchRemoteFiles(at path: String) async throws {
         guard let sftp else {
             return
         }
-
+        
         let resolvedPath = try await sftp.getRealPath(atPath: path)
         let entries = try await sftp.listDirectory(atPath: resolvedPath)
             .flatMap(\.components)
@@ -106,42 +106,42 @@ final class TerminalSessionManager: ObservableObject {
                 if $0.isDirectory != $1.isDirectory {
                     return $0.isDirectory && !$1.isDirectory
                 }
-
+                
                 return $0.name.localizedStandardCompare($1.name) == .orderedAscending
             }
-
+        
         currentRemotePath = resolvedPath
         remoteFiles = entries
     }
-
+    
     func uploadFile(localURL: URL) async throws {
         guard let sftp else {
             return
         }
-
+        
         let shouldStopAccessing = localURL.startAccessingSecurityScopedResource()
         defer {
             if shouldStopAccessing {
                 localURL.stopAccessingSecurityScopedResource()
             }
         }
-
+        
         let fileName = localURL.lastPathComponent
         let destinationPath = remotePath(appending: fileName)
         let data = try Data(contentsOf: localURL)
-
+        
         showUploadIndicator = true
         uploadProgress = 0
-
+        
         try await sftp.withFile(filePath: destinationPath, flags: [.write, .create, .truncate]) { file in
             let chunkSize = 32_000
             var offset = 0
-
+            
             while offset < data.count {
                 let end = min(offset + chunkSize, data.count)
                 let chunk = ByteBuffer(bytes: data[offset..<end])
                 try await file.write(chunk, at: UInt64(offset))
-
+                
                 offset = end
                 let progress = data.isEmpty ? 1 : Double(end) / Double(data.count)
                 await MainActor.run {
@@ -149,33 +149,32 @@ final class TerminalSessionManager: ObservableObject {
                 }
             }
         }
-
+        
         uploadProgress = 1
         try await fetchRemoteFiles(at: currentRemotePath)
-
+        
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(1.2))
             self.showUploadIndicator = false
             self.uploadProgress = 0
         }
     }
-
+    
     func startTerminalBridge(initialCols: Int = 80, initialRows: Int = 24, onOutput: @escaping @MainActor (ArraySlice<UInt8>) -> Void) {
         guard shellTask == nil, !didShellExit, let client else {
             return
         }
-
+        
         let stream = AsyncStream<TerminalInputEvent> { continuation in
             self.inputContinuation = continuation
         }
         let shellSessionID = UUID()
         self.shellSessionID = shellSessionID
-
+        
         isShellActive = true
-
+        
         shellTask = Task.detached { [weak self] in
-            var didExitNormally = false
-
+            
             do {
                 try await client.withPTY(
                     .init(
@@ -198,7 +197,7 @@ final class TerminalSessionManager: ObservableObject {
                                 }
                             }
                         }
-
+                        
                         group.addTask {
                             for await event in stream {
                                 switch event {
@@ -209,12 +208,11 @@ final class TerminalSessionManager: ObservableObject {
                                 }
                             }
                         }
-
+                        
                         try await group.next()
                         group.cancelAll()
                     }
                 }
-                didExitNormally = true
             } catch is CancellationError {
             } catch {
                 let message = "SSH Connection Interrupted: \(error.localizedDescription)"
@@ -222,53 +220,54 @@ final class TerminalSessionManager: ObservableObject {
                     self?.statusMessage = message
                 }
             }
-
-            let didExitNormallyValue = didExitNormally
-            await MainActor.run { [weak self, shellSessionID, didExitNormallyValue] in
-                let shouldNotifyExit = self?.shellSessionID == shellSessionID && didExitNormallyValue
-                if shouldNotifyExit {
-                    self?.didShellExit = true
-                }
-                self?.isShellActive = false
-                if shouldNotifyExit {
-                    self?.onShellExit?()
-                }
-                self?.shellTask = nil
-                self?.shellSessionID = nil
-                self?.inputContinuation = nil
+            
+            await MainActor.run { [weak self, shellSessionID] in
+                guard let self = self, self.shellSessionID == shellSessionID else { return }
+                
+                // 标记状态
+                self.didShellExit = true
+                self.isShellActive = false
+                self.statusMessage = "Terminal session ended"
+                
+                self.onShellExit?()
+                
+                // 释放持有的临时任务句柄
+                self.shellTask = nil
+                self.shellSessionID = nil
+                self.inputContinuation = nil
             }
         }
     }
-
+    
     func syncRemoteFolder(to directory: String?) {
         guard let directory, !directory.isEmpty else {
             return
         }
-
+        
         let path: String
         if let url = URL(string: directory), url.isFileURL {
             path = url.path
         } else {
             path = directory
         }
-
+        
         Task {
             try? await fetchRemoteFiles(at: path)
         }
     }
-
+    
     func sendInputToRemote(bytes: ArraySlice<UInt8>) {
         inputContinuation?.yield(.send(Array(bytes)))
     }
-
+    
     func resizeRemoteTerminal(cols: Int, rows: Int) {
         guard cols > 0, rows > 0 else {
             return
         }
-
+        
         inputContinuation?.yield(.resize(cols: cols, rows: rows))
     }
-
+    
     private func remotePath(appending fileName: String) -> String {
         let prefix = currentRemotePath == "/" ? "" : currentRemotePath
         return "\(prefix)/\(fileName)"
