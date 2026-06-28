@@ -198,7 +198,7 @@ struct ServerManagerView: View {
     private func folderHeader(folder: String, count: Int) -> some View {
         HStack(spacing: 6) {
             Image(systemName: count == 0 ? "folder" : "folder.fill")
-                .foregroundStyle(.yellow.opacity(0.8))
+                .foregroundStyle(.accent.opacity(0.8))
                 .font(.system(size: 13))
 
             if editingFolderName == folder {
