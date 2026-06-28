@@ -60,8 +60,17 @@ struct ServerManagerView: View {
 
             serverTreeDirectory
         }
-        .frame(minWidth: 740, minHeight: 540)
-        .background(Color(red: 0.045, green: 0.048, blue: 0.05))
+        .frame(minWidth: 780, minHeight: 560)
+        .background(
+            LinearGradient(
+                colors: [
+                    Color(red: 0.052, green: 0.055, blue: 0.057),
+                    Color(red: 0.035, green: 0.037, blue: 0.04)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
         .foregroundStyle(.white.opacity(0.9))
         // 顶层按键响应：如果选中的是普通节点，按 Delete 键删除
         .onDeleteCommand {
@@ -113,162 +122,241 @@ struct ServerManagerView: View {
 
     // MARK: - 工具栏
     private var toolbar: some View {
-        HStack(spacing: 6) {
-            managerButton("New", icon: "plus.circle") {
-                editorMode = .create(folder: selectedFolder)
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 3) {
+                Label("Servers", systemImage: "server.rack")
+                    .font(.system(size: 17, weight: .semibold))
+                Text("Double-click a server to connect. Click a folder row to expand or collapse.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.44))
             }
-
-            managerButton("Edit", icon: "pencil") {
-                if let selectedProfile { editorMode = .edit(selectedProfile) }
-            }
-            .disabled(selectedProfile == nil)
-
-            managerButton("Clone", icon: "doc.on.doc") {
-                cloneSelectedProfile()
-            }
-            .disabled(selectedProfile == nil)
-
-            managerButton("Delete", icon: "trash") {
-                deleteSelectedProfile()
-            }
-            .disabled(selectedProfile == nil)
-
-            Divider()
-                .frame(height: 16)
-                .overlay(.white.opacity(0.1))
-
-            managerButton("New Folder", icon: "folder.badge.plus") {
-                createFolder()
-            }
-
-            managerButton("Delete Folder", icon: "folder.badge.minus") {
-                deleteSelectedFolder()
-            }
-            .disabled(selectedFolder == "Default")
 
             Spacer(minLength: 0)
 
-            Label("\(serverStore.profiles.count) Servers", systemImage: "server.rack")
-                .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.4))
+            HStack(spacing: 8) {
+                managerButton("New Server", icon: "plus") {
+                    editorMode = .create(folder: selectedFolder)
+                }
+
+                managerButton("New Folder", icon: "folder.badge.plus") {
+                    createFolder()
+                }
+
+                Divider()
+                    .frame(height: 20)
+                    .overlay(.white.opacity(0.1))
+
+                managerButton("Edit", icon: "pencil") {
+                    if let selectedProfile { editorMode = .edit(selectedProfile) }
+                }
+                .disabled(selectedProfile == nil)
+
+                managerButton("Clone", icon: "doc.on.doc") {
+                    cloneSelectedProfile()
+                }
+                .disabled(selectedProfile == nil)
+
+                managerButton("Delete", icon: "trash") {
+                    if selectedProfile != nil {
+                        deleteSelectedProfile()
+                    } else {
+                        deleteSelectedFolder()
+                    }
+                }
+                .disabled(selectedProfile == nil && selectedFolder == "Default")
+            }
         }
-        .padding(.horizontal, 14)
-        .frame(height: 44)
-        .background(.ultraThinMaterial)
+        .padding(.horizontal, 18)
+        .frame(height: 64)
+        .background(Color.black.opacity(0.18))
     }
 
     // MARK: - 现代树状目录结构
     private var serverTreeDirectory: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 2) {
-                let groupedProfiles = Dictionary(grouping: serverStore.profiles, by: { $0.group })
-
-                ForEach(serverStore.folders, id: \.self) { folder in
-                    let profiles = groupedProfiles[folder] ?? []
-                    let isExpanded = Binding<Bool>(
-                        get: { expandedFolders[folder, default: true] },
-                        set: { expandedFolders[folder] = $0 }
-                    )
-                    
-                    DisclosureGroup(isExpanded: isExpanded) {
-                        if profiles.isEmpty {
-                            Text("Empty folder")
-                                .font(.system(size: 11, weight: .light))
-                                .foregroundStyle(.white.opacity(0.3))
-                                .padding(.leading, 24)
-                                .frame(height: 24)
-                        } else {
-                            ForEach(profiles) { profile in
-                                serverTreeRow(profile)
-                                    .padding(.leading, 12)
-                            }
-                        }
-                    } label: {
-                        folderHeader(folder: folder, count: profiles.count)
-                    }
-                    .disclosureGroupStyle(VeloxDisclosureStyle())
-                }
+        VStack(spacing: 0) {
+            HStack {
+                Text("\(serverStore.profiles.count) saved \(serverStore.profiles.count == 1 ? "server" : "servers")")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.42))
+                Spacer()
+                Text(selectedProfile == nil ? "Folder selected" : "Server selected")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.34))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    let groupedProfiles = Dictionary(grouping: serverStore.profiles, by: { $0.group })
+
+                    if serverStore.profiles.isEmpty {
+                        emptyState
+                    }
+
+                    ForEach(serverStore.folders, id: \.self) { folder in
+                        let profiles = groupedProfiles[folder] ?? []
+                        folderSection(folder: folder, profiles: profiles)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+            }
         }
     }
 
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: "server.rack")
+                .font(.system(size: 22, weight: .medium))
+                .foregroundStyle(.white.opacity(0.42))
+
+            Text("No server profiles yet")
+                .font(.system(size: 15, weight: .semibold))
+
+            Text("Create a server profile, group it in a folder, then double-click it to connect.")
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.48))
+
+            Button {
+                editorMode = .create(folder: selectedFolder)
+            } label: {
+                Label("New Server", systemImage: "plus")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .padding(.top, 2)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(.white.opacity(0.08), lineWidth: 1)
+        }
+    }
+
+    private func folderSection(folder: String, profiles: [ServerProfile]) -> some View {
+        let isExpanded = expandedFolders[folder, default: true]
+
+        return VStack(alignment: .leading, spacing: 5) {
+            folderHeader(folder: folder, count: profiles.count, isExpanded: isExpanded)
+
+            if isExpanded {
+                if profiles.isEmpty {
+                    HStack(spacing: 8) {
+                        Image(systemName: "tray")
+                            .frame(width: 16)
+                        Text("No servers in this folder")
+                    }
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.36))
+                    .padding(.leading, 34)
+                    .frame(height: 28)
+                } else {
+                    ForEach(profiles) { profile in
+                        serverTreeRow(profile)
+                            .padding(.leading, 26)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 5)
+        .background(.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 8))
+    }
+
     // MARK: - 文件夹头部样式 (带右键菜单与内联编辑)
-    private func folderHeader(folder: String, count: Int) -> some View {
+    private func folderHeader(folder: String, count: Int, isExpanded: Bool) -> some View {
         HStack(spacing: 6) {
+            Image(systemName: "chevron.right")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white.opacity(0.46))
+                .rotationEffect(isExpanded ? .degrees(90) : .degrees(0))
+                .frame(width: 16, height: 16)
+
             Image(systemName: count == 0 ? "folder" : "folder.fill")
                 .foregroundStyle(.accent.opacity(0.8))
-                .font(.system(size: 13))
+                .font(.system(size: 14))
+                .frame(width: 18)
 
             if editingFolderName == folder {
-                // 就地无缝重命名输入框
                 TextField("", text: $folderRenameBuffer, onCommit: {
                     commitRenameFolder(oldName: folder)
                 })
                 .textFieldStyle(.plain)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.white)
-                .padding(.horizontal, 4)
-                .background(Color.blue.opacity(0.3), in: RoundedRectangle(cornerRadius: 3))
-                .frame(maxWidth: 180)
-                // 拦截点击事件，防止输入时触发折叠
+                .padding(.horizontal, 6)
+                .background(Color.blue.opacity(0.22), in: RoundedRectangle(cornerRadius: 5))
+                .frame(maxWidth: 220)
                 .onTapGesture {}
             } else {
                 Text(folder)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.85))
             }
 
             Spacer()
 
             Text("\(count)")
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.35))
-                .padding(.horizontal, 5)
-                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 4))
+                .padding(.horizontal, 7)
+                .frame(height: 20)
+                .background(.white.opacity(0.06), in: Capsule())
         }
+        .padding(.horizontal, 10)
         .contentShape(Rectangle())
-        .frame(height: 28)
+        .frame(height: 36)
         .background(
-            selectedFolder == folder && selectedProfileID == nil ? Color.white.opacity(0.06) : Color.clear,
-            in: RoundedRectangle(cornerRadius: 4)
+            selectedFolder == folder && selectedProfileID == nil ? Color.white.opacity(0.075) : Color.clear,
+            in: RoundedRectangle(cornerRadius: 7)
         )
         .onTapGesture {
             selectedFolder = folder
             selectedProfileID = nil
+            guard editingFolderName != folder else { return }
+            withAnimation(.spring(response: 0.22, dampingFraction: 0.86)) {
+                expandedFolders[folder, default: true].toggle()
+            }
         }
         .contextMenu {
-            Button("New Server Here") {
+            Button {
                 selectedFolder = folder
                 selectedProfileID = nil
                 editorMode = .create(folder: folder)
+            } label: {
+                Label("New Server Here", systemImage: "plus")
             }
             
             Divider()
             
-            Button("Rename Folder") {
+            Button {
                 startRenameFolder(folder)
+            } label: {
+                Label("Rename Folder", systemImage: "pencil")
             }
             
-            Button("Delete Folder", role: .destructive) {
+            Button(role: .destructive) {
                 selectedFolder = folder
                 selectedProfileID = nil
                 deleteSelectedFolder()
+            } label: {
+                Label("Delete Folder", systemImage: "trash")
             }
         }
     }
 
     // MARK: - 服务器节点样式
     private func serverTreeRow(_ profile: ServerProfile) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image(systemName: "terminal")
                 .foregroundStyle(.cyan.opacity(0.85))
-                .font(.system(size: 12))
-                .frame(width: 14)
+                .font(.system(size: 13))
+                .frame(width: 16)
 
             Text(profile.name)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 13, weight: .semibold))
                 .layoutPriority(1)
 
             HStack(spacing: 4) {
@@ -277,7 +365,7 @@ struct ServerManagerView: View {
                     .foregroundStyle(.white.opacity(0.3))
             }
             .font(.system(size: 11, design: .monospaced))
-            .foregroundStyle(.white.opacity(0.4))
+            .foregroundStyle(.white.opacity(0.42))
             .lineLimit(1)
 
             Spacer(minLength: 0)
@@ -291,11 +379,11 @@ struct ServerManagerView: View {
                     .help("Recently Connected")
             }
         }
-        .padding(.horizontal, 8)
-        .frame(height: 28)
+        .padding(.horizontal, 10)
+        .frame(height: 34)
         .background(
-            selectedProfileID == profile.id ? Color.blue.opacity(0.25) : Color.clear,
-            in: RoundedRectangle(cornerRadius: 4)
+            selectedProfileID == profile.id ? Color.blue.opacity(0.24) : Color.clear,
+            in: RoundedRectangle(cornerRadius: 7)
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -308,20 +396,44 @@ struct ServerManagerView: View {
             }
         )
         .contextMenu {
-            Button("Connect") { requestOpen(profile) }
+            Button {
+                requestOpen(profile)
+            } label: {
+                Label("Connect", systemImage: "bolt.horizontal")
+            }
+
             Divider()
-            Button("Edit") { editorMode = .edit(profile) }
-            Button("Clone") { selectedProfileID = profile.id; cloneSelectedProfile() }
-            Button("Delete", role: .destructive) { deleteSelectedProfile() }
+
+            Button {
+                editorMode = .edit(profile)
+            } label: {
+                Label("Edit", systemImage: "pencil")
+            }
+
+            Button {
+                selectedProfileID = profile.id
+                cloneSelectedProfile()
+            } label: {
+                Label("Clone", systemImage: "doc.on.doc")
+            }
+
+            Button(role: .destructive) {
+                deleteSelectedProfile()
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
         }
     }
 
     private func managerButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(title, systemImage: icon)
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 18, height: 18)
         }
         .buttonStyle(.bordered)
-        .controlSize(.small)
+        .controlSize(.regular)
+        .help(title)
     }
 
     // MARK: - 内部控制逻辑
@@ -423,34 +535,6 @@ struct ServerManagerView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(0.8))
             openingProfileIDs.remove(profile.id)
-        }
-    }
-}
-
-// MARK: - 自定义紧凑型树状折叠样式
-struct VeloxDisclosureStyle: DisclosureGroupStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 4) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .rotationEffect(configuration.isExpanded ? .degrees(90) : .degrees(0))
-                    .animation(.spring(response: 0.2, dampingFraction: 0.8), value: configuration.isExpanded)
-                    .onTapGesture {
-                        withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) {
-                            configuration.isExpanded.toggle()
-                        }
-                    }
-                    .frame(width: 12, height: 12)
-
-                configuration.label
-            }
-            
-            if configuration.isExpanded {
-                configuration.content
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
         }
     }
 }
