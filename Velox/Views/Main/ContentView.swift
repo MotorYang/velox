@@ -45,8 +45,6 @@ struct ContentView: View {
                     .padding(.vertical, 6)
                     .background(Color(nsColor: settings.terminalSurfaceBackgroundColor))
             }
-
-            uploadOverlay
         }
         .animation(.spring(response: 0.28, dampingFraction: 0.86), value: showsSFTPPane)
         .overlay {
@@ -145,23 +143,6 @@ struct ContentView: View {
         .ignoresSafeArea()
     }
 
-    @ViewBuilder
-    private var uploadOverlay: some View {
-        if sessionManager.showUploadIndicator {
-            VStack {
-                ProgressView(value: sessionManager.uploadProgress)
-                    .progressViewStyle(.linear)
-                    .frame(width: 240)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(.top, 60)
-
-                Spacer()
-            }
-        }
-    }
-
     private func openServerManager() {
         if serverManagerWindowController == nil {
             serverManagerWindowController = ServerManagerWindowController()
@@ -208,9 +189,7 @@ struct ContentView: View {
     private func handleDroppedURLs(_ urls: [URL]) -> Bool {
         guard sessionManager.isConnected else { return false }
         Task { @MainActor in
-            for url in urls {
-                try? await sessionManager.uploadFile(localURL: url)
-            }
+            try? await sessionManager.uploadItems(localURLs: urls)
         }
         return true
     }
