@@ -6,6 +6,7 @@ final class VeloxAppDelegate: NSObject, NSApplicationDelegate {
     private var mainWindowController: MainWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        applyDockIcon()
         openMainWindow()
     }
 
@@ -22,6 +23,18 @@ final class VeloxAppDelegate: NSObject, NSApplicationDelegate {
         }
 
         mainWindowController?.open()
+    }
+
+    private func applyDockIcon() {
+        if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let icon = NSImage(contentsOf: iconURL) {
+            NSApp.applicationIconImage = icon
+            return
+        }
+
+        if let icon = NSImage(named: "AppIcon") {
+            NSApp.applicationIconImage = icon
+        }
     }
 }
 
