@@ -10,12 +10,9 @@ final class ShellWindowController: NSObject, NSWindowDelegate {
             .environmentObject(VeloxSettings.shared)
         let hostingController = NSHostingController(rootView: shellView)
         let window = NSWindow(contentViewController: hostingController)
-        window.title = profile.name
         window.setContentSize(VeloxSettings.shared.windowSize)
-        window.minSize = NSSize(width: 720, height: 420)
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.delegate = self
-        VeloxSettings.shared.apply(to: window)
+        VeloxWindowStyler.applyTerminalWindowStyle(to: window, title: profile.name)
         window.center()
         window.makeKeyAndOrderFront(nil)
         self.window = window
@@ -62,7 +59,7 @@ private struct ShellWindowView: View {
         .frame(minWidth: 720, minHeight: 420)
         .background(WindowAccessor { newWindow in
             window = newWindow
-            settings.apply(to: newWindow)
+            VeloxWindowStyler.applyTerminalWindowStyle(to: newWindow, title: profile.name, settings: settings)
         })
         .focusedSceneValue(\.openRemoteFolderAction, sessionManager.isConnected ? {
             showsSFTPPane = true
@@ -76,19 +73,21 @@ private struct ShellWindowView: View {
             showsSFTPPane = isConnected
         }
         .onChange(of: settings.appearanceMode) { _, _ in
-            settings.apply(to: window)
+            VeloxWindowStyler.applyTerminalWindowStyle(to: window, title: profile.name, settings: settings)
         }
         .onChange(of: settings.isTransparent) { _, _ in
-            settings.apply(to: window)
+            VeloxWindowStyler.applyTerminalWindowStyle(to: window, title: profile.name, settings: settings)
         }
         .onChange(of: settings.transparency) { _, _ in
-            settings.apply(to: window)
+            VeloxWindowStyler.applyTerminalWindowStyle(to: window, title: profile.name, settings: settings)
         }
         .onChange(of: settings.defaultWindowWidth) { _, _ in
             settings.apply(to: window, resize: true)
+            VeloxWindowStyler.applyTerminalWindowStyle(to: window, title: profile.name, settings: settings)
         }
         .onChange(of: settings.defaultWindowHeight) { _, _ in
             settings.apply(to: window, resize: true)
+            VeloxWindowStyler.applyTerminalWindowStyle(to: window, title: profile.name, settings: settings)
         }
         .preferredColorScheme(settings.appearanceMode.colorScheme)
         .task {

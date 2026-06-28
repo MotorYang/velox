@@ -91,7 +91,10 @@ final class LocalTerminalContainerView: NSView, @preconcurrency LocalProcessTerm
     func apply(settings: VeloxSettings) {
         self.settings = settings
         wantsLayer = true
+        layer?.isOpaque = false
         layer?.backgroundColor = settings.terminalBackgroundColor.cgColor
+        terminalView.wantsLayer = true
+        terminalView.layer?.isOpaque = false
         terminalView.nativeBackgroundColor = settings.terminalBackgroundColor
         terminalView.nativeForegroundColor = settings.terminalForegroundColor
         terminalView.font = settings.terminalFont
@@ -104,6 +107,8 @@ final class LocalTerminalContainerView: NSView, @preconcurrency LocalProcessTerm
         wantsLayer = true
 
         terminalView.translatesAutoresizingMaskIntoConstraints = false
+        terminalView.wantsLayer = true
+        terminalView.layer?.isOpaque = false
         terminalView.processDelegate = self
         terminalView.metalBufferingMode = .perFrameAggregated
         try? terminalView.setUseMetal(false)

@@ -50,6 +50,13 @@ struct ContentView: View {
         } isTargeted: { isDropTargeted = $0 }
         .onChange(of: sessionManager.isConnected) { _, isConnected in
             showsSFTPPane = isConnected
+            applyMainWindowSettings()
+        }
+        .onChange(of: sessionManager.currentRemotePath) { _, _ in
+            applyMainWindowSettings()
+        }
+        .onChange(of: sessionManager.remoteTitlePrefix) { _, _ in
+            applyMainWindowSettings()
         }
         .background(WindowAccessor { newWindow in
             window = newWindow
@@ -89,43 +96,7 @@ struct ContentView: View {
 
     private func applyMainWindowSettings(resize: Bool = false) {
         settings.apply(to: window, resize: resize)
-        configureMainWindow(window)
-    }
-
-    private func configureMainWindow(_ window: NSWindow?) {
-        guard let window else { return }
-        window.styleMask.remove(.fullSizeContentView)
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = false
-        window.toolbar = nil
-        window.standardWindowButton(.closeButton)?.isHidden = false
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = false
-        window.standardWindowButton(.zoomButton)?.isHidden = false
-        window.title = chromeTitle
-        configureTitlebarAccessory(for: window)
-    }
-
-    private func configureTitlebarAccessory(for window: NSWindow) {
-        let identifier = NSUserInterfaceItemIdentifier("VeloxTitlebarAccessory")
-        let titleView = MainWindowTitlebarView(title: chromeTitle)
-
-        if let accessory = window.titlebarAccessoryViewControllers.first(where: { $0.view.identifier == identifier }),
-           let hostingView = accessory.view as? NSHostingView<MainWindowTitlebarView> {
-            hostingView.rootView = titleView
-            return
-        }
-
-        let hostingView = NSHostingView(rootView: titleView)
-        hostingView.identifier = identifier
-        hostingView.wantsLayer = true
-        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
-        hostingView.frame = NSRect(x: 0, y: 0, width: 560, height: 28)
-
-        let accessory = NSTitlebarAccessoryViewController()
-        accessory.view = hostingView
-        accessory.layoutAttribute = .left
-        window.addTitlebarAccessoryViewController(accessory)
+        VeloxWindowStyler.applyTerminalWindowStyle(to: window, title: chromeTitle, settings: settings)
     }
 
     private var chromeTitle: String {
@@ -211,29 +182,6 @@ struct ContentView: View {
             }
         }
         return true
-    }
-}
-
-private struct MainWindowTitlebarView: View {
-    let title: String
-
-    var body: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "folder.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(red: 0.36, green: 0.74, blue: 0.95))
-
-            Text(title)
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.68))
-                .lineLimit(1)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.leading, 8)
-        .padding(.trailing, 12)
-        .frame(width: 560, height: 28, alignment: .leading)
-        .background(Color.clear)
     }
 }
 

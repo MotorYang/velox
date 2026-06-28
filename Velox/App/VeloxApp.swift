@@ -9,20 +9,16 @@ import SwiftUI
 
 @main
 struct VeloxApp: App {
+    @NSApplicationDelegateAdaptor(VeloxAppDelegate.self) private var appDelegate
     @StateObject private var settings = VeloxSettings.shared
 
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        Settings {
+            SettingsView()
                 .environmentObject(settings)
         }
         .commands {
             VeloxCommands()
-        }
-
-        Settings {
-            SettingsView()
-                .environmentObject(settings)
         }
     }
 }

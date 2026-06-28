@@ -24,14 +24,17 @@ final class ServerManagerWindowController: NSObject, NSWindowDelegate {
                 self?.shellWindows.append(controller)
             }
         )
+        .environmentObject(VeloxSettings.shared)
 
         let hostingController = NSHostingController(rootView: rootView)
         let window = NSWindow(contentViewController: hostingController)
-        window.title = "Servers"
         window.setContentSize(NSSize(width: 760, height: 560))
-        window.minSize = NSSize(width: 680, height: 480)
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.delegate = self
+        VeloxWindowStyler.applyTerminalWindowStyle(
+            to: window,
+            title: "Servers",
+            minSize: NSSize(width: 680, height: 480)
+        )
         window.center()
         window.makeKeyAndOrderFront(nil)
         self.window = window

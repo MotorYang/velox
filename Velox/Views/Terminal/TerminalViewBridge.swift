@@ -77,6 +77,9 @@ struct TerminalViewBridge: NSViewRepresentable {
     }
 
     private func applySettings(to view: TerminalView) {
+        view.wantsLayer = true
+        view.layer?.isOpaque = false
+        view.layer?.backgroundColor = settings.terminalBackgroundColor.cgColor
         view.nativeBackgroundColor = settings.terminalBackgroundColor
         view.nativeForegroundColor = settings.terminalForegroundColor
         view.font = settings.terminalFont

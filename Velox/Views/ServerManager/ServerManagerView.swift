@@ -15,6 +15,7 @@ private enum Field: Hashable {
 
 // MARK: - 主管理器视图
 struct ServerManagerView: View {
+    @EnvironmentObject private var settings: VeloxSettings
     @ObservedObject var serverStore: ServerDirectoryStore
     let connectInCurrentWindow: @MainActor (ServerProfile, SSHAuthentication) -> Void
     let connectInNewWindow: @MainActor (ServerProfile, SSHAuthentication) -> Void
@@ -64,10 +65,7 @@ struct ServerManagerView: View {
         .frame(minWidth: 780, minHeight: 560)
         .background(
             LinearGradient(
-                colors: [
-                    Color(red: 0.052, green: 0.055, blue: 0.057),
-                    Color(red: 0.035, green: 0.037, blue: 0.04)
-                ],
+                colors: settings.backgroundGradientColors,
                 startPoint: .top,
                 endPoint: .bottom
             )

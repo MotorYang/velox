@@ -19,6 +19,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
 struct SettingsView: View {
     @EnvironmentObject private var settings: VeloxSettings
     @State private var selection: SettingsSection = .profiles
+    @State private var window: NSWindow?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -42,10 +43,43 @@ struct SettingsView: View {
                 .padding(24)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .background(Color(nsColor: .controlBackgroundColor))
+            .background(
+                LinearGradient(
+                    colors: settings.backgroundGradientColors,
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
         }
         .frame(width: 720, height: 470)
+        .background(WindowAccessor { newWindow in
+            window = newWindow
+            VeloxWindowStyler.applyTerminalWindowStyle(
+                to: newWindow,
+                title: "Settings",
+                minSize: NSSize(width: 720, height: 470),
+                settings: settings
+            )
+        })
+        .onChange(of: settings.appearanceMode) { _, _ in
+            applyWindowStyle()
+        }
+        .onChange(of: settings.isTransparent) { _, _ in
+            applyWindowStyle()
+        }
+        .onChange(of: settings.transparency) { _, _ in
+            applyWindowStyle()
+        }
         .preferredColorScheme(settings.appearanceMode.colorScheme)
+    }
+
+    private func applyWindowStyle() {
+        VeloxWindowStyler.applyTerminalWindowStyle(
+            to: window,
+            title: "Settings",
+            minSize: NSSize(width: 720, height: 470),
+            settings: settings
+        )
     }
 
     private var sidebar: some View {
@@ -73,7 +107,7 @@ struct SettingsView: View {
         }
         .padding(12)
         .frame(width: 168)
-        .background(.regularMaterial)
+        .background(Color(nsColor: settings.terminalBackgroundColor))
     }
 
     private var sectionHeader: some View {
@@ -225,6 +259,7 @@ private struct WindowSettings: View {
 }
 
 private struct SettingsGroup<Content: View>: View {
+    @EnvironmentObject private var settings: VeloxSettings
     let title: String
     @ViewBuilder let content: Content
 
@@ -240,7 +275,7 @@ private struct SettingsGroup<Content: View>: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .background(Color(nsColor: settings.terminalBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
