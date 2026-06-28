@@ -10,6 +10,7 @@ final class TerminalSessionManager: ObservableObject {
     @Published private(set) var isShellActive = false
     @Published private(set) var didShellExit = false
     @Published private(set) var currentRemotePath = "/"
+    @Published private(set) var remoteTitlePrefix: String?
     @Published private(set) var remoteFiles: [RemoteFile] = []
     @Published var uploadProgress = 0.0
     @Published var showUploadIndicator = false
@@ -48,16 +49,18 @@ final class TerminalSessionManager: ObservableObject {
         )
 
         sshClient.onDisconnect { [weak self] in
-            Task { @MainActor in
-                self?.isConnected = false
-                self?.isShellActive = false
-                self?.statusMessage = "SSH connection disconnected"
+            guard let manager = self else { return }
+            Task { @MainActor [manager] in
+                manager.isConnected = false
+                manager.isShellActive = false
+                manager.statusMessage = "SSH connection disconnected"
             }
         }
 
         self.client = sshClient
         self.sftp = try await sshClient.openSFTP()
         self.isConnected = true
+        self.remoteTitlePrefix = "\(user)@\(host)"
         self.statusMessage = "SSH connected"
 
         try await fetchRemoteFiles(at: ".")
@@ -85,6 +88,7 @@ final class TerminalSessionManager: ObservableObject {
         didShellExit = false
         remoteFiles = []
         currentRemotePath = "/"
+        remoteTitlePrefix = nil
         statusMessage = "SSH connection closed"
     }
 
@@ -139,8 +143,9 @@ final class TerminalSessionManager: ObservableObject {
                 try await file.write(chunk, at: UInt64(offset))
 
                 offset = end
+                let progress = data.isEmpty ? 1 : Double(end) / Double(data.count)
                 await MainActor.run {
-                    self.uploadProgress = data.isEmpty ? 1 : Double(offset) / Double(data.count)
+                    self.uploadProgress = progress
                 }
             }
         }
@@ -212,13 +217,15 @@ final class TerminalSessionManager: ObservableObject {
                 didExitNormally = true
             } catch is CancellationError {
             } catch {
-                await MainActor.run {
-                    self?.statusMessage = "SSH Connection Interrupted: \(error.localizedDescription)"
+                let message = "SSH Connection Interrupted: \(error.localizedDescription)"
+                await MainActor.run { [weak self, message] in
+                    self?.statusMessage = message
                 }
             }
 
-            await MainActor.run {
-                let shouldNotifyExit = self?.shellSessionID == shellSessionID && didExitNormally
+            let didExitNormallyValue = didExitNormally
+            await MainActor.run { [weak self, shellSessionID, didExitNormallyValue] in
+                let shouldNotifyExit = self?.shellSessionID == shellSessionID && didExitNormallyValue
                 if shouldNotifyExit {
                     self?.didShellExit = true
                 }

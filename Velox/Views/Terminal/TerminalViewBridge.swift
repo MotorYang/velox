@@ -4,6 +4,7 @@ import SwiftUI
 
 struct TerminalViewBridge: NSViewRepresentable {
     @ObservedObject var sessionManager: TerminalSessionManager
+    @ObservedObject var settings: VeloxSettings
 
     final class Coordinator: NSObject, TerminalViewDelegate {
         let sessionManager: TerminalSessionManager
@@ -57,8 +58,8 @@ struct TerminalViewBridge: NSViewRepresentable {
         view.terminalDelegate = context.coordinator
         view.metalBufferingMode = .perFrameAggregated
         try? view.setUseMetal(false)
-        view.nativeBackgroundColor = .clear
-        view.font = TerminalFontProvider.preferredFont()
+        applySettings(to: view)
+        TerminalChromeStyler.apply(to: view)
         view.feed(text: "\(sessionManager.statusMessage)\r\n")
 
         startBridge(afterViewUpdate: view)
@@ -67,8 +68,16 @@ struct TerminalViewBridge: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: TerminalView, context: Context) {
+        applySettings(to: nsView)
+        TerminalChromeStyler.apply(to: nsView)
         startBridge(afterViewUpdate: nsView)
         nsView.needsDisplay = true
+    }
+
+    private func applySettings(to view: TerminalView) {
+        view.nativeBackgroundColor = settings.terminalBackgroundColor
+        view.nativeForegroundColor = settings.terminalForegroundColor
+        view.font = settings.terminalFont
     }
 
     private func startBridge(afterViewUpdate view: TerminalView) {

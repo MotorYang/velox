@@ -7,13 +7,15 @@ final class ShellWindowController: NSObject, NSWindowDelegate {
 
     func open(profile: ServerProfile, password: String, serverStore: ServerDirectoryStore) {
         let shellView = ShellWindowView(profile: profile, password: password, serverStore: serverStore)
+            .environmentObject(VeloxSettings.shared)
         let hostingController = NSHostingController(rootView: shellView)
         let window = NSWindow(contentViewController: hostingController)
         window.title = profile.name
-        window.setContentSize(NSSize(width: 940, height: 580))
+        window.setContentSize(VeloxSettings.shared.windowSize)
         window.minSize = NSSize(width: 720, height: 420)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.delegate = self
+        VeloxSettings.shared.apply(to: window)
         window.center()
         window.makeKeyAndOrderFront(nil)
         self.window = window
@@ -25,6 +27,7 @@ final class ShellWindowController: NSObject, NSWindowDelegate {
 }
 
 private struct ShellWindowView: View {
+    @EnvironmentObject private var settings: VeloxSettings
     let profile: ServerProfile
     let password: String
     @ObservedObject var serverStore: ServerDirectoryStore
@@ -37,7 +40,11 @@ private struct ShellWindowView: View {
 
     var body: some View {
         ZStack {
-            Color(red: 0.035, green: 0.038, blue: 0.04)
+            LinearGradient(
+                colors: settings.backgroundGradientColors,
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
                 .ignoresSafeArea()
 
             if sessionManager.isConnected {
@@ -53,7 +60,10 @@ private struct ShellWindowView: View {
             }
         }
         .frame(minWidth: 720, minHeight: 420)
-        .background(WindowAccessor { window = $0 })
+        .background(WindowAccessor { newWindow in
+            window = newWindow
+            settings.apply(to: newWindow)
+        })
         .focusedSceneValue(\.openRemoteFolderAction, sessionManager.isConnected ? {
             showsSFTPPane = true
         } : nil)
@@ -65,6 +75,22 @@ private struct ShellWindowView: View {
         .onChange(of: sessionManager.isConnected) { _, isConnected in
             showsSFTPPane = isConnected
         }
+        .onChange(of: settings.appearanceMode) { _, _ in
+            settings.apply(to: window)
+        }
+        .onChange(of: settings.isTransparent) { _, _ in
+            settings.apply(to: window)
+        }
+        .onChange(of: settings.transparency) { _, _ in
+            settings.apply(to: window)
+        }
+        .onChange(of: settings.defaultWindowWidth) { _, _ in
+            settings.apply(to: window, resize: true)
+        }
+        .onChange(of: settings.defaultWindowHeight) { _, _ in
+            settings.apply(to: window, resize: true)
+        }
+        .preferredColorScheme(settings.appearanceMode.colorScheme)
         .task {
             guard !didStartConnection else { return }
             didStartConnection = true

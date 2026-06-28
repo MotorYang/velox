@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct RemoteShellSplitView: View {
+    @EnvironmentObject private var settings: VeloxSettings
     @ObservedObject var sessionManager: TerminalSessionManager
     @Binding var showsFilePane: Bool
     @State private var filePaneWidth: CGFloat = 300
@@ -15,7 +16,10 @@ struct RemoteShellSplitView: View {
         GeometryReader { geometry in
             ZStack(alignment: .trailing) {
                 HStack(spacing: 0) {
-                    TerminalViewBridge(sessionManager: sessionManager)
+                    TerminalViewBridge(sessionManager: sessionManager, settings: settings)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(Color(nsColor: settings.terminalBackgroundColor))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                     if showsFilePane {
@@ -63,7 +67,6 @@ struct RemoteShellSplitView: View {
                             dragStartWidth = filePaneWidth
                         }
 
-                        let proposedWidth = (dragStartWidth ?? filePaneWidth) - value.translation.width
                         filePaneWidth = (dragStartWidth ?? filePaneWidth) - value.translation.width
                     }
                     .onEnded { _ in

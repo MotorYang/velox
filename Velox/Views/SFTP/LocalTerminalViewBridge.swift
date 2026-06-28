@@ -3,11 +3,14 @@ import SwiftUI
 @preconcurrency import SwiftTerm
 
 struct LocalTerminalViewBridge: NSViewRepresentable {
+    @ObservedObject var settings: VeloxSettings
+
     func makeNSView(context: Context) -> LocalTerminalContainerView {
-        LocalTerminalContainerView()
+        LocalTerminalContainerView(settings: settings)
     }
 
     func updateNSView(_ nsView: LocalTerminalContainerView, context: Context) {
+        nsView.apply(settings: settings)
         nsView.scheduleStart()
         nsView.requestFocus()
     }
@@ -20,17 +23,29 @@ struct LocalTerminalViewBridge: NSViewRepresentable {
 @MainActor
 final class LocalTerminalContainerView: NSView, @preconcurrency LocalProcessTerminalViewDelegate {
     private let terminalView = LocalProcessTerminalView(frame: .zero)
+    private var settings: VeloxSettings
     private var didStartProcess = false
     private var hasQueuedStart = false
 
+    init(settings: VeloxSettings) {
+        self.settings = settings
+        super.init(frame: .zero)
+        setupTerminalView()
+        apply(settings: settings)
+    }
+
     override init(frame frameRect: NSRect) {
+        self.settings = .shared
         super.init(frame: frameRect)
         setupTerminalView()
+        apply(settings: settings)
     }
 
     required init?(coder: NSCoder) {
+        self.settings = .shared
         super.init(coder: coder)
         setupTerminalView()
+        apply(settings: settings)
     }
 
     override var acceptsFirstResponder: Bool {
@@ -72,17 +87,24 @@ final class LocalTerminalContainerView: NSView, @preconcurrency LocalProcessTerm
         terminalView.terminate()
     }
 
+    func apply(settings: VeloxSettings) {
+        self.settings = settings
+        wantsLayer = true
+        layer?.backgroundColor = settings.terminalBackgroundColor.cgColor
+        terminalView.nativeBackgroundColor = settings.terminalBackgroundColor
+        terminalView.nativeForegroundColor = settings.terminalForegroundColor
+        terminalView.font = settings.terminalFont
+        TerminalChromeStyler.apply(to: terminalView)
+        terminalView.needsDisplay = true
+    }
+
     private func setupTerminalView() {
         wantsLayer = true
-        layer?.backgroundColor = NSColor(calibratedRed: 0.035, green: 0.038, blue: 0.04, alpha: 1).cgColor
 
         terminalView.translatesAutoresizingMaskIntoConstraints = false
         terminalView.processDelegate = self
         terminalView.metalBufferingMode = .perFrameAggregated
         try? terminalView.setUseMetal(false)
-        terminalView.nativeBackgroundColor = NSColor(calibratedRed: 0.035, green: 0.038, blue: 0.04, alpha: 1)
-        terminalView.nativeForegroundColor = NSColor(calibratedWhite: 0.86, alpha: 1)
-        terminalView.font = TerminalFontProvider.preferredFont()
         terminalView.caretColor = .systemGreen
         terminalView.getTerminal().setCursorStyle(.steadyBlock)
 

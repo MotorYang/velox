@@ -10,6 +10,7 @@ import UniformTypeIdentifiers
 
 // MARK: - 主视图
 struct ContentView: View {
+    @EnvironmentObject private var settings: VeloxSettings
     @StateObject private var sessionManager = TerminalSessionManager()
     @StateObject private var serverStore = ServerDirectoryStore()
 
@@ -18,6 +19,7 @@ struct ContentView: View {
     @State private var showsSFTPPane = false
     @State private var serverManagerWindowController: ServerManagerWindowController?
     @State private var window: NSWindow?
+    @State private var didApplyInitialWindowSettings = false
 
     var body: some View {
         ZStack {
@@ -26,7 +28,10 @@ struct ContentView: View {
             if sessionManager.isConnected {
                 RemoteShellSplitView(sessionManager: sessionManager, showsFilePane: $showsSFTPPane)
             } else {
-                LocalTerminalViewBridge()
+                LocalTerminalViewBridge(settings: settings)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color(nsColor: settings.terminalBackgroundColor))
             }
 
             uploadOverlay
@@ -46,7 +51,11 @@ struct ContentView: View {
         .onChange(of: sessionManager.isConnected) { _, isConnected in
             showsSFTPPane = isConnected
         }
-        .background(WindowAccessor { window = $0 })
+        .background(WindowAccessor { newWindow in
+            window = newWindow
+            applyMainWindowSettings(resize: !didApplyInitialWindowSettings)
+            didApplyInitialWindowSettings = true
+        })
         .focusedSceneValue(\.openServerManagerAction, {
             openServerManager()
         })
@@ -59,15 +68,95 @@ struct ContentView: View {
                 window?.close()
             }
         }
-        .frame(minWidth: 940, minHeight: 580)
+        .onChange(of: settings.appearanceMode) { _, _ in
+            applyMainWindowSettings()
+        }
+        .onChange(of: settings.isTransparent) { _, _ in
+            applyMainWindowSettings()
+        }
+        .onChange(of: settings.transparency) { _, _ in
+            applyMainWindowSettings()
+        }
+        .onChange(of: settings.defaultWindowWidth) { _, _ in
+            applyMainWindowSettings(resize: true)
+        }
+        .onChange(of: settings.defaultWindowHeight) { _, _ in
+            applyMainWindowSettings(resize: true)
+        }
+        .preferredColorScheme(settings.appearanceMode.colorScheme)
+        .frame(minWidth: 720, minHeight: 420)
+    }
+
+    private func applyMainWindowSettings(resize: Bool = false) {
+        settings.apply(to: window, resize: resize)
+        configureMainWindow(window)
+    }
+
+    private func configureMainWindow(_ window: NSWindow?) {
+        guard let window else { return }
+        window.styleMask.remove(.fullSizeContentView)
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = false
+        window.toolbar = nil
+        window.standardWindowButton(.closeButton)?.isHidden = false
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = false
+        window.standardWindowButton(.zoomButton)?.isHidden = false
+        window.title = chromeTitle
+        configureTitlebarAccessory(for: window)
+    }
+
+    private func configureTitlebarAccessory(for window: NSWindow) {
+        let identifier = NSUserInterfaceItemIdentifier("VeloxTitlebarAccessory")
+        let titleView = MainWindowTitlebarView(title: chromeTitle)
+
+        if let accessory = window.titlebarAccessoryViewControllers.first(where: { $0.view.identifier == identifier }),
+           let hostingView = accessory.view as? NSHostingView<MainWindowTitlebarView> {
+            hostingView.rootView = titleView
+            return
+        }
+
+        let hostingView = NSHostingView(rootView: titleView)
+        hostingView.identifier = identifier
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+        hostingView.frame = NSRect(x: 0, y: 0, width: 560, height: 28)
+
+        let accessory = NSTitlebarAccessoryViewController()
+        accessory.view = hostingView
+        accessory.layoutAttribute = .left
+        window.addTitlebarAccessoryViewController(accessory)
+    }
+
+    private var chromeTitle: String {
+        if sessionManager.isConnected, let prefix = sessionManager.remoteTitlePrefix {
+            return "\(prefix):\(sessionManager.currentRemotePath)"
+        }
+
+        return "\(NSUserName())@\(localHostName):\(localWorkingDirectory)"
+    }
+
+    private var localHostName: String {
+        Host.current().localizedName ?? "localhost"
+    }
+
+    private var localWorkingDirectory: String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let path = FileManager.default.currentDirectoryPath
+        if path == home {
+            return "~"
+        }
+
+        if path.hasPrefix(home + "/") {
+            return "~" + path.dropFirst(home.count)
+        }
+
+        return path
     }
 
     private var appBackground: some View {
         LinearGradient(
-            colors: [
-                Color(red: 0.035, green: 0.038, blue: 0.04),
-                Color(red: 0.055, green: 0.058, blue: 0.056)
-            ],
+            colors: settings.backgroundGradientColors,
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
@@ -122,6 +211,29 @@ struct ContentView: View {
             }
         }
         return true
+    }
+}
+
+private struct MainWindowTitlebarView: View {
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "folder.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color(red: 0.36, green: 0.74, blue: 0.95))
+
+            Text(title)
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.68))
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 8)
+        .padding(.trailing, 12)
+        .frame(width: 560, height: 28, alignment: .leading)
+        .background(Color.clear)
     }
 }
 
