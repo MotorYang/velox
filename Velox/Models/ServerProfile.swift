@@ -25,6 +25,7 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
     var group: String
     var authenticationMethod: ServerAuthenticationMethod
     var privateKeyPath: String
+    var hasStoredSecret: Bool
     var lastConnectedAt: Date?
 
     private enum CodingKeys: String, CodingKey {
@@ -36,6 +37,7 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
         case group
         case authenticationMethod
         case privateKeyPath
+        case hasStoredSecret
         case lastConnectedAt
     }
 
@@ -48,6 +50,7 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
         group: String = "Default",
         authenticationMethod: ServerAuthenticationMethod = .password,
         privateKeyPath: String = "",
+        hasStoredSecret: Bool = false,
         lastConnectedAt: Date? = nil
     ) {
         self.id = id
@@ -58,6 +61,7 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
         self.group = group
         self.authenticationMethod = authenticationMethod
         self.privateKeyPath = privateKeyPath
+        self.hasStoredSecret = hasStoredSecret
         self.lastConnectedAt = lastConnectedAt
     }
 
@@ -69,8 +73,10 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
         port = try container.decode(Int.self, forKey: .port)
         username = try container.decode(String.self, forKey: .username)
         group = try container.decode(String.self, forKey: .group)
-        authenticationMethod = try container.decodeIfPresent(ServerAuthenticationMethod.self, forKey: .authenticationMethod) ?? .password
+        let decodedAuthenticationMethod = try container.decodeIfPresent(ServerAuthenticationMethod.self, forKey: .authenticationMethod) ?? .password
+        authenticationMethod = decodedAuthenticationMethod
         privateKeyPath = try container.decodeIfPresent(String.self, forKey: .privateKeyPath) ?? ""
+        hasStoredSecret = try container.decodeIfPresent(Bool.self, forKey: .hasStoredSecret) ?? (decodedAuthenticationMethod == .password)
         lastConnectedAt = try container.decodeIfPresent(Date.self, forKey: .lastConnectedAt)
     }
 }

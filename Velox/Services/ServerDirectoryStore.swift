@@ -14,24 +14,36 @@ final class ServerDirectoryStore: ObservableObject {
     }
     
     func password(for profileID: UUID) -> String {
-        (try? KeychainManager.readPassword(account: passwordAccount(for: profileID))) ?? ""
+        authSecret(for: profileID)
     }
 
     func authSecret(for profileID: UUID) -> String {
-        password(for: profileID)
+        (try? authSecret(for: profileID, reason: "Velox needs your permission to read this server secret.")) ?? ""
     }
-    
+
+    func authSecret(for profileID: UUID, reason: String) throws -> String {
+        try KeychainManager.readPassword(account: passwordAccount(for: profileID), reason: reason) ?? ""
+    }
+
     func save(_ profile: ServerProfile, password: String) {
         save(profile, authSecret: password)
     }
 
     func save(_ profile: ServerProfile, authSecret: String) {
+        save(profile, authSecret: Optional(authSecret))
+    }
+
+    func save(_ profile: ServerProfile, authSecret: String?) {
         createFolder(named: profile.group)
+        var storedProfile = profile
+        if let authSecret {
+            storedProfile.hasStoredSecret = !authSecret.isEmpty
+        }
         
         if let index = profiles.firstIndex(where: { $0.id == profile.id }) {
-            profiles[index] = profile
+            profiles[index] = storedProfile
         } else {
-            profiles.append(profile)
+            profiles.append(storedProfile)
         }
         
         profiles.sort {
@@ -42,9 +54,10 @@ final class ServerDirectoryStore: ObservableObject {
             return $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
         
-        if authSecret.isEmpty {
+        if authSecret == nil {
+        } else if authSecret?.isEmpty == true {
             try? KeychainManager.delete(account: passwordAccount(for: profile.id))
-        } else {
+        } else if let authSecret {
             try? KeychainManager.savePassword(authSecret, account: passwordAccount(for: profile.id))
         }
         
@@ -54,11 +67,11 @@ final class ServerDirectoryStore: ObservableObject {
     func authentication(for profile: ServerProfile) throws -> SSHAuthentication {
         switch profile.authenticationMethod {
         case .password:
-            return .password(authSecret(for: profile.id))
+            return .password(try authSecret(for: profile.id, reason: "Authenticate to connect to \(profile.name)."))
         case .rsaPrivateKey:
             return .rsaPrivateKey(try Data(contentsOf: URL(fileURLWithPath: profile.privateKeyPath)))
         case .ed25519PrivateKey:
-            let passphrase = authSecret(for: profile.id)
+            let passphrase = try authSecret(for: profile.id, reason: "Authenticate to unlock the private key for \(profile.name).")
             return .ed25519PrivateKey(
                 try Data(contentsOf: URL(fileURLWithPath: profile.privateKeyPath)),
                 passphrase: passphrase.isEmpty ? nil : Data(passphrase.utf8)
@@ -143,7 +156,7 @@ final class ServerDirectoryStore: ObservableObject {
     func markConnected(_ profile: ServerProfile) {
         var updated = profile
         updated.lastConnectedAt = Date()
-        save(updated, authSecret: authSecret(for: profile.id))
+        save(updated, authSecret: nil)
     }
     
     private func load() {

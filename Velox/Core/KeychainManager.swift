@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 import Security
 
 enum KeychainManager {
@@ -24,8 +25,12 @@ enum KeychainManager {
         try save(data, account: account, service: service)
     }
 
-    static func readPassword(account: String, service: String = Bundle.main.bundleIdentifier ?? "Velox") throws -> String? {
-        guard let data = try readData(account: account, service: service) else {
+    static func readPassword(
+        account: String,
+        service: String = Bundle.main.bundleIdentifier ?? "Velox",
+        reason: String = "Velox needs your permission to read this server secret."
+    ) throws -> String? {
+        guard let data = try readData(account: account, service: service, reason: reason) else {
             return nil
         }
 
@@ -42,7 +47,7 @@ enum KeychainManager {
 
         var item = query
         item[kSecValueData as String] = data
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        item[kSecAttrAccessControl as String] = try accessControl()
 
         let status = SecItemAdd(item as CFDictionary, nil)
         guard status == errSecSuccess else {
@@ -50,10 +55,15 @@ enum KeychainManager {
         }
     }
 
-    static func readData(account: String, service: String = Bundle.main.bundleIdentifier ?? "Velox") throws -> Data? {
+    static func readData(
+        account: String,
+        service: String = Bundle.main.bundleIdentifier ?? "Velox",
+        reason: String = "Velox needs your permission to read this server secret."
+    ) throws -> Data? {
         var query = baseQuery(account: account, service: service)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
+        query[kSecUseAuthenticationContext as String] = authenticationContext(reason: reason)
 
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -86,5 +96,25 @@ enum KeychainManager {
             kSecAttrAccount as String: account,
             kSecAttrService as String: service
         ]
+    }
+
+    private static func accessControl() throws -> SecAccessControl {
+        var error: Unmanaged<CFError>?
+        guard let control = SecAccessControlCreateWithFlags(
+            nil,
+            kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            .userPresence,
+            &error
+        ) else {
+            throw error?.takeRetainedValue() ?? KeychainError.invalidData
+        }
+
+        return control
+    }
+
+    private static func authenticationContext(reason: String) -> LAContext {
+        let context = LAContext()
+        context.localizedReason = reason
+        return context
     }
 }

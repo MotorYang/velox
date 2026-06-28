@@ -93,7 +93,12 @@ struct ServerManagerView: View {
             ServerProfileEditorSheet(
                 mode: mode,
                 folders: serverStore.folders,
-                authSecretForProfile: { serverStore.authSecret(for: $0) },
+                loadAuthSecretForProfile: { profileID in
+                    try serverStore.authSecret(
+                        for: profileID,
+                        reason: "Velox needs your permission to edit this server secret."
+                    )
+                },
                 save: { profile, authSecret in
                     serverStore.save(profile, authSecret: authSecret)
                     selectedProfileID = profile.id
@@ -485,7 +490,8 @@ struct ServerManagerView: View {
             username: selectedProfile.username,
             group: selectedProfile.group,
             authenticationMethod: selectedProfile.authenticationMethod,
-            privateKeyPath: selectedProfile.privateKeyPath
+            privateKeyPath: selectedProfile.privateKeyPath,
+            hasStoredSecret: selectedProfile.hasStoredSecret
         )
         serverStore.save(cloned, authSecret: serverStore.authSecret(for: selectedProfile.id))
         selectedProfileID = cloned.id
@@ -554,8 +560,8 @@ struct ServerManagerView: View {
 private struct ServerProfileEditorSheet: View {
     let mode: ServerManagerView.EditorMode
     let folders: [String]
-    let authSecretForProfile: (UUID) -> String
-    let save: (ServerProfile, String) -> Void
+    let loadAuthSecretForProfile: (UUID) throws -> String
+    let save: (ServerProfile, String?) -> Void
     let createFolder: (String) -> String
 
     @Environment(\.dismiss) private var dismiss
@@ -569,6 +575,9 @@ private struct ServerProfileEditorSheet: View {
     @State private var authSecret = ""
     @State private var privateKeyPath = ""
     @State private var showsSecret = false
+    @State private var hasStoredSecret = false
+    @State private var didLoadStoredSecret = false
+    @State private var secretLoadError: String?
 
     @FocusState private var focusedField: Field?
 
@@ -599,7 +608,7 @@ private struct ServerProfileEditorSheet: View {
         }
         switch authenticationMethod {
         case .password:
-            if !matches(authSecret, pattern: passwordPattern) {
+            if !hasReusableSecret && !matches(authSecret, pattern: passwordPattern) {
                 errors.append("Password is required and must be 1024 characters or fewer.")
             }
         case .rsaPrivateKey:
@@ -617,8 +626,28 @@ private struct ServerProfileEditorSheet: View {
         return errors
     }
 
-    private var authSecretToSave: String {
-        authenticationMethod == .rsaPrivateKey ? "" : authSecret
+    private var hasReusableSecret: Bool {
+        hasStoredSecret && !didLoadStoredSecret && authSecret.isEmpty
+    }
+
+    private var authSecretValueToSave: String? {
+        if authenticationMethod == .rsaPrivateKey {
+            return ""
+        }
+
+        if hasReusableSecret {
+            return nil
+        }
+
+        return authSecret
+    }
+
+    private var hasStoredSecretAfterSave: Bool {
+        guard let authSecretValueToSave else {
+            return hasStoredSecret
+        }
+
+        return !authSecretValueToSave.isEmpty
     }
 
     var body: some View {
@@ -691,10 +720,18 @@ private struct ServerProfileEditorSheet: View {
                     .help("Choose password authentication or a private key certificate.")
                     .onChange(of: authenticationMethod) { _, _ in
                         authSecret = ""
+                        didLoadStoredSecret = false
+                        secretLoadError = nil
                     }
 
                     authenticationFields
                 }
+            }
+
+            if let secretLoadError {
+                Label(secretLoadError, systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange.opacity(0.86))
             }
 
             if !validationErrors.isEmpty {
@@ -716,7 +753,7 @@ private struct ServerProfileEditorSheet: View {
                 Spacer()
 
                 Button {
-                    save(makeProfile(with: folder), authSecretToSave)
+                    save(makeProfile(with: folder), authSecretValueToSave)
                     dismiss()
                 } label: {
                     Text("Save Profile")
@@ -834,7 +871,7 @@ private struct ServerProfileEditorSheet: View {
         validator: @escaping (String) -> Bool,
         help: String
     ) -> some View {
-        let isValid = validator(authSecret)
+        let isValid = hasReusableSecret || validator(authSecret)
 
         return HStack(spacing: 10) {
             Image(systemName: icon)
@@ -847,13 +884,29 @@ private struct ServerProfileEditorSheet: View {
                     .foregroundStyle(.white.opacity(0.42))
                 Group {
                     if showsSecret {
-                        TextField(placeholder, text: $authSecret)
+                        TextField(secretPlaceholder(placeholder), text: $authSecret)
                     } else {
-                        SecureField(placeholder, text: $authSecret)
+                        SecureField(secretPlaceholder(placeholder), text: $authSecret)
                     }
                 }
                 .focused($focusedField, equals: focus)
                 .textFieldStyle(.plain)
+                .onChange(of: authSecret) { _, _ in
+                    if focusedField == focus {
+                        didLoadStoredSecret = true
+                    }
+                }
+            }
+
+            if hasStoredSecret && !didLoadStoredSecret {
+                Button {
+                    loadStoredSecret(focus: focus)
+                } label: {
+                    Image(systemName: "key.viewfinder")
+                        .foregroundStyle(.white.opacity(0.58))
+                }
+                .buttonStyle(.plain)
+                .help("Authenticate once to load and edit the stored secret")
             }
 
             Button {
@@ -870,6 +923,10 @@ private struct ServerProfileEditorSheet: View {
         }
         .managerField(isValid: isValid)
         .help(help)
+    }
+
+    private func secretPlaceholder(_ fallback: String) -> String {
+        hasReusableSecret ? "Stored secret will be kept" : fallback
     }
 
     private func validatedField(
@@ -918,7 +975,22 @@ private struct ServerProfileEditorSheet: View {
             username = profile.username
             authenticationMethod = profile.authenticationMethod
             privateKeyPath = profile.privateKeyPath
-            authSecret = authSecretForProfile(profile.id)
+            hasStoredSecret = profile.hasStoredSecret
+            didLoadStoredSecret = false
+            authSecret = ""
+        }
+    }
+
+    private func loadStoredSecret(focus: Field) {
+        guard case .edit(let profile) = mode else { return }
+
+        do {
+            authSecret = try loadAuthSecretForProfile(profile.id)
+            didLoadStoredSecret = true
+            secretLoadError = nil
+            focusedField = focus
+        } catch {
+            secretLoadError = "Unable to load stored secret: \(error.localizedDescription)"
         }
     }
 
@@ -932,7 +1004,8 @@ private struct ServerProfileEditorSheet: View {
                 username: username,
                 group: finalFolder,
                 authenticationMethod: authenticationMethod,
-                privateKeyPath: privateKeyPath
+                privateKeyPath: privateKeyPath,
+                hasStoredSecret: hasStoredSecretAfterSave
             )
         case .edit(let profile):
             return ServerProfile(
@@ -944,6 +1017,7 @@ private struct ServerProfileEditorSheet: View {
                 group: finalFolder,
                 authenticationMethod: authenticationMethod,
                 privateKeyPath: privateKeyPath,
+                hasStoredSecret: hasStoredSecretAfterSave,
                 lastConnectedAt: profile.lastConnectedAt
             )
         }
