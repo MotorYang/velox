@@ -185,14 +185,14 @@ struct ContentView: View {
             serverManagerWindowController = ServerManagerWindowController()
         }
 
-        serverManagerWindowController?.open(store: serverStore) { profile, password in
+        serverManagerWindowController?.open(store: serverStore) { profile, auth in
             Task {
                 do {
                     try await sessionManager.connect(
                         host: profile.host,
                         port: profile.port,
                         user: profile.username,
-                        auth: .password(password)
+                        auth: auth
                     )
                     serverStore.markConnected(profile)
                 } catch {

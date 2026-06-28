@@ -16,8 +16,16 @@ final class ServerDirectoryStore: ObservableObject {
     func password(for profileID: UUID) -> String {
         (try? KeychainManager.readPassword(account: passwordAccount(for: profileID))) ?? ""
     }
+
+    func authSecret(for profileID: UUID) -> String {
+        password(for: profileID)
+    }
     
     func save(_ profile: ServerProfile, password: String) {
+        save(profile, authSecret: password)
+    }
+
+    func save(_ profile: ServerProfile, authSecret: String) {
         createFolder(named: profile.group)
         
         if let index = profiles.firstIndex(where: { $0.id == profile.id }) {
@@ -34,11 +42,28 @@ final class ServerDirectoryStore: ObservableObject {
             return $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
         
-        if !password.isEmpty {
-            try? KeychainManager.savePassword(password, account: passwordAccount(for: profile.id))
+        if authSecret.isEmpty {
+            try? KeychainManager.delete(account: passwordAccount(for: profile.id))
+        } else {
+            try? KeychainManager.savePassword(authSecret, account: passwordAccount(for: profile.id))
         }
         
         persist()
+    }
+
+    func authentication(for profile: ServerProfile) throws -> SSHAuthentication {
+        switch profile.authenticationMethod {
+        case .password:
+            return .password(authSecret(for: profile.id))
+        case .rsaPrivateKey:
+            return .rsaPrivateKey(try Data(contentsOf: URL(fileURLWithPath: profile.privateKeyPath)))
+        case .ed25519PrivateKey:
+            let passphrase = authSecret(for: profile.id)
+            return .ed25519PrivateKey(
+                try Data(contentsOf: URL(fileURLWithPath: profile.privateKeyPath)),
+                passphrase: passphrase.isEmpty ? nil : Data(passphrase.utf8)
+            )
+        }
     }
     
     @discardableResult
@@ -118,7 +143,7 @@ final class ServerDirectoryStore: ObservableObject {
     func markConnected(_ profile: ServerProfile) {
         var updated = profile
         updated.lastConnectedAt = Date()
-        save(updated, password: password(for: profile.id))
+        save(updated, authSecret: authSecret(for: profile.id))
     }
     
     private func load() {

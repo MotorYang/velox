@@ -8,7 +8,7 @@ final class ServerManagerWindowController: NSObject, NSWindowDelegate {
 
     func open(
         store: ServerDirectoryStore,
-        connectInCurrentWindow: @escaping @MainActor (ServerProfile, String) -> Void
+        connectInCurrentWindow: @escaping @MainActor (ServerProfile, SSHAuthentication) -> Void
     ) {
         if let window {
             window.makeKeyAndOrderFront(nil)
@@ -18,9 +18,9 @@ final class ServerManagerWindowController: NSObject, NSWindowDelegate {
         let rootView = ServerManagerView(
             serverStore: store,
             connectInCurrentWindow: connectInCurrentWindow,
-            connectInNewWindow: { [weak self, store] profile, password in
+            connectInNewWindow: { [weak self, store] profile, auth in
                 let controller = ShellWindowController()
-                controller.open(profile: profile, password: password, serverStore: store)
+                controller.open(profile: profile, auth: auth, serverStore: store)
                 self?.shellWindows.append(controller)
             }
         )

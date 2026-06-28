@@ -5,18 +5,19 @@
 //  Created by yangxy on 2026/6/27.
 //
 
+import AppKit
 import SwiftUI
 
 // MARK: - 焦点与字段定义
 private enum Field: Hashable {
-    case name, folder, host, port, username, password
+    case name, host, port, username, password, privateKeyPath, passphrase
 }
 
 // MARK: - 主管理器视图
 struct ServerManagerView: View {
     @ObservedObject var serverStore: ServerDirectoryStore
-    let connectInCurrentWindow: @MainActor (ServerProfile, String) -> Void
-    let connectInNewWindow: @MainActor (ServerProfile, String) -> Void
+    let connectInCurrentWindow: @MainActor (ServerProfile, SSHAuthentication) -> Void
+    let connectInNewWindow: @MainActor (ServerProfile, SSHAuthentication) -> Void
 
     @State private var selectedProfileID: UUID?
     @State private var selectedFolder = "Default"
@@ -92,9 +93,9 @@ struct ServerManagerView: View {
             ServerProfileEditorSheet(
                 mode: mode,
                 folders: serverStore.folders,
-                passwordForProfile: { serverStore.password(for: $0) },
-                save: { profile, password in
-                    serverStore.save(profile, password: password)
+                authSecretForProfile: { serverStore.authSecret(for: $0) },
+                save: { profile, authSecret in
+                    serverStore.save(profile, authSecret: authSecret)
                     selectedProfileID = profile.id
                     selectedFolder = profile.group
                 },
@@ -349,7 +350,7 @@ struct ServerManagerView: View {
 
     // MARK: - 服务器节点样式
     private func serverTreeRow(_ profile: ServerProfile) -> some View {
-        HStack(spacing: 10) {
+        return HStack(spacing: 10) {
             Image(systemName: "terminal")
                 .foregroundStyle(.cyan.opacity(0.85))
                 .font(.system(size: 13))
@@ -482,9 +483,11 @@ struct ServerManagerView: View {
             host: selectedProfile.host,
             port: selectedProfile.port,
             username: selectedProfile.username,
-            group: selectedProfile.group
+            group: selectedProfile.group,
+            authenticationMethod: selectedProfile.authenticationMethod,
+            privateKeyPath: selectedProfile.privateKeyPath
         )
-        serverStore.save(cloned, password: serverStore.password(for: selectedProfile.id))
+        serverStore.save(cloned, authSecret: serverStore.authSecret(for: selectedProfile.id))
         selectedProfileID = cloned.id
     }
 
@@ -500,10 +503,10 @@ struct ServerManagerView: View {
         switch UserDefaults.standard.string(forKey: openPreferenceKey) {
         case "current":
             openingProfileIDs.insert(profile.id)
-            openProfile(profile, password: serverStore.password(for: profile.id), inNewWindow: false)
+            openProfile(profile, inNewWindow: false)
         case "new":
             openingProfileIDs.insert(profile.id)
-            openProfile(profile, password: serverStore.password(for: profile.id), inNewWindow: true)
+            openProfile(profile, inNewWindow: true)
         default:
             pendingOpenProfile = profile
             showsOpenChoice = true
@@ -516,20 +519,28 @@ struct ServerManagerView: View {
 
     private func openPendingProfile(inNewWindow: Bool) {
         guard let pendingOpenProfile else { return }
-        let password = serverStore.password(for: pendingOpenProfile.id)
-        openProfile(pendingOpenProfile, password: password, inNewWindow: inNewWindow)
+        openProfile(pendingOpenProfile, inNewWindow: inNewWindow)
         self.pendingOpenProfile = nil
     }
 
-    private func openProfile(_ profile: ServerProfile, password: String, inNewWindow: Bool) {
+    private func openProfile(_ profile: ServerProfile, inNewWindow: Bool) {
         if !openingProfileIDs.contains(profile.id) {
             openingProfileIDs.insert(profile.id)
         }
+
+        let auth: SSHAuthentication
+        do {
+            auth = try serverStore.authentication(for: profile)
+        } catch {
+            print("Failed to load SSH authentication: \(error.localizedDescription)")
+            openingProfileIDs.remove(profile.id)
+            return
+        }
         
         if inNewWindow {
-            connectInNewWindow(profile, password)
+            connectInNewWindow(profile, auth)
         } else {
-            connectInCurrentWindow(profile, password)
+            connectInCurrentWindow(profile, auth)
         }
 
         Task { @MainActor in
@@ -543,7 +554,7 @@ struct ServerManagerView: View {
 private struct ServerProfileEditorSheet: View {
     let mode: ServerManagerView.EditorMode
     let folders: [String]
-    let passwordForProfile: (UUID) -> String
+    let authSecretForProfile: (UUID) -> String
     let save: (ServerProfile, String) -> Void
     let createFolder: (String) -> String
 
@@ -554,32 +565,146 @@ private struct ServerProfileEditorSheet: View {
     @State private var host = ""
     @State private var port = "22"
     @State private var username = ""
-    @State private var password = ""
-    @State private var showsPassword = false
+    @State private var authenticationMethod: ServerAuthenticationMethod = .password
+    @State private var authSecret = ""
+    @State private var privateKeyPath = ""
+    @State private var showsSecret = false
 
     @FocusState private var focusedField: Field?
 
+    private let namePattern = #"^[\p{L}\p{N}][\p{L}\p{N}\s._-]{1,63}$"#
+    private let hostPattern = #"^(([A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?|((25[0-5]|2[0-4]\d|1?\d?\d)(\.|$)){4})$"#
+    private let usernamePattern = #"^[A-Za-z0-9._-]{1,64}$"#
+    private let privateKeyPattern = #"^(/[^/\0]+)+$"#
+    private let passwordPattern = #"^.{1,1024}$"#
+    private let passphrasePattern = #"^.{0,1024}$"#
+
     private var canSave: Bool {
-        !name.isEmpty && !host.isEmpty && !username.isEmpty && !password.isEmpty
+        validationErrors.isEmpty
+    }
+
+    private var validationErrors: [String] {
+        var errors: [String] = []
+        if !matches(name, pattern: namePattern) {
+            errors.append("Profile name must be 2-64 characters and may contain letters, numbers, spaces, dots, underscores, and hyphens.")
+        }
+        if !matches(host, pattern: hostPattern) {
+            errors.append("Host must be a valid hostname or IPv4 address.")
+        }
+        if !(1...65535).contains(Int(port) ?? 0) {
+            errors.append("Port must be a number from 1 to 65535.")
+        }
+        if !matches(username, pattern: usernamePattern) {
+            errors.append("Username may contain letters, numbers, dots, underscores, and hyphens.")
+        }
+        switch authenticationMethod {
+        case .password:
+            if !matches(authSecret, pattern: passwordPattern) {
+                errors.append("Password is required and must be 1024 characters or fewer.")
+            }
+        case .rsaPrivateKey:
+            if !matches(privateKeyPath, pattern: privateKeyPattern) || !FileManager.default.fileExists(atPath: privateKeyPath) {
+                errors.append("Private key path must point to an existing local file.")
+            }
+        case .ed25519PrivateKey:
+            if !matches(privateKeyPath, pattern: privateKeyPattern) || !FileManager.default.fileExists(atPath: privateKeyPath) {
+                errors.append("Private key path must point to an existing local file.")
+            }
+            if !matches(authSecret, pattern: passphrasePattern) {
+                errors.append("Passphrase must be 1024 characters or fewer.")
+            }
+        }
+        return errors
+    }
+
+    private var authSecretToSave: String {
+        authenticationMethod == .rsaPrivateKey ? "" : authSecret
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Label(title, systemImage: icon)
-                .font(.system(size: 16, weight: .bold))
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 4) {
+                Label(title, systemImage: icon)
+                    .font(.system(size: 18, weight: .semibold))
+                Text("Use clear names and valid connection settings. Secrets are stored in Keychain.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.48))
+            }
 
-            VStack(spacing: 12) {
-                field(.name, icon: "tag", placeholder: "Profile Name", text: $name)
-                field(.folder, icon: "folder", placeholder: "Folder / Group", text: $folder)
+            VStack(alignment: .leading, spacing: 16) {
+                settingsSection("Profile") {
+                    validatedField(
+                        .name,
+                        title: "Name",
+                        icon: "tag",
+                        placeholder: "Production SSH",
+                        text: $name,
+                        pattern: namePattern,
+                        help: "2-64 characters. Letters, numbers, spaces, dots, underscores, and hyphens are allowed."
+                    )
 
-                HStack(spacing: 12) {
-                    field(.host, icon: "network", placeholder: "Host", text: $host)
-                    field(.port, icon: "number", placeholder: "22", text: $port)
-                        .frame(width: 90)
+                    readOnlyFolderField
                 }
 
-                field(.username, icon: "person", placeholder: "Username", text: $username)
-                passwordField
+                settingsSection("Connection") {
+                    HStack(spacing: 12) {
+                        validatedField(
+                            .host,
+                            title: "Host",
+                            icon: "network",
+                            placeholder: "example.com or 192.168.1.10",
+                            text: $host,
+                            pattern: hostPattern,
+                            help: "Enter a hostname, domain name, or IPv4 address."
+                        )
+
+                        validatedField(
+                            .port,
+                            title: "Port",
+                            icon: "number",
+                            placeholder: "22",
+                            text: $port,
+                            validator: { (1...65535).contains(Int($0) ?? 0) },
+                            help: "TCP port from 1 to 65535."
+                        )
+                        .frame(width: 132)
+                    }
+
+                    validatedField(
+                        .username,
+                        title: "Username",
+                        icon: "person",
+                        placeholder: "deploy",
+                        text: $username,
+                        pattern: usernamePattern,
+                        help: "1-64 characters. Letters, numbers, dots, underscores, and hyphens are allowed."
+                    )
+                }
+
+                settingsSection("Authentication") {
+                    Picker("Method", selection: $authenticationMethod) {
+                        ForEach(ServerAuthenticationMethod.allCases) { method in
+                            Text(method.title).tag(method)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .help("Choose password authentication or a private key certificate.")
+                    .onChange(of: authenticationMethod) { _, _ in
+                        authSecret = ""
+                    }
+
+                    authenticationFields
+                }
+            }
+
+            if !validationErrors.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(validationErrors, id: \.self) { error in
+                        Label(error, systemImage: "exclamationmark.circle")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.orange.opacity(0.86))
+                    }
+                }
             }
 
             HStack(spacing: 12) {
@@ -591,8 +716,7 @@ private struct ServerProfileEditorSheet: View {
                 Spacer()
 
                 Button {
-                    let finalFolder = createFolder(folder)
-                    save(makeProfile(with: finalFolder), password)
+                    save(makeProfile(with: folder), authSecretToSave)
                     dismiss()
                 } label: {
                     Text("Save Profile")
@@ -603,8 +727,8 @@ private struct ServerProfileEditorSheet: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(20)
-        .frame(width: 420)
+        .padding(22)
+        .frame(width: 560)
         .onAppear {
             load()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -631,46 +755,155 @@ private struct ServerProfileEditorSheet: View {
     }
 
     private var passwordField: some View {
-        HStack(spacing: 9) {
-            Image(systemName: "key")
-                .foregroundStyle(.white.opacity(0.35))
-                .frame(width: 16)
+        secretField(
+            title: "Password",
+            icon: "key",
+            placeholder: "Required",
+            focus: .password,
+            validator: { matches($0, pattern: passwordPattern) },
+            help: "Required for password authentication. 1-1024 characters. Stored in Keychain."
+        )
+    }
 
-            Group {
-                if showsPassword {
-                    TextField("Password", text: $password)
-                } else {
-                    SecureField("Password", text: $password)
+    @ViewBuilder
+    private var authenticationFields: some View {
+        switch authenticationMethod {
+        case .password:
+            passwordField
+        case .rsaPrivateKey, .ed25519PrivateKey:
+            VStack(spacing: 10) {
+                HStack(spacing: 10) {
+                    validatedField(
+                        .privateKeyPath,
+                        title: "Private Key",
+                        icon: "doc.badge.key",
+                        placeholder: "/Users/me/.ssh/id_ed25519",
+                        text: $privateKeyPath,
+                        validator: { matches($0, pattern: privateKeyPattern) && FileManager.default.fileExists(atPath: $0) },
+                        help: "Absolute path to an existing private key file. The file content is read only when connecting."
+                    )
+
+                    Button {
+                        choosePrivateKey()
+                    } label: {
+                        Image(systemName: "folder")
+                            .frame(width: 18, height: 18)
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Choose a private key file")
+                }
+
+                if authenticationMethod == .ed25519PrivateKey {
+                    secretField(
+                        title: "Passphrase",
+                        icon: "lock",
+                        placeholder: "Optional",
+                        focus: .passphrase,
+                        validator: { matches($0, pattern: passphrasePattern) },
+                        help: "Optional Ed25519 private key passphrase. Up to 1024 characters. Stored in Keychain."
+                    )
                 }
             }
-            .focused($focusedField, equals: .password)
-            .textFieldStyle(.plain)
+        }
+    }
+
+    private var readOnlyFolderField: some View {
+        return HStack(spacing: 10) {
+            Image(systemName: "folder")
+                .foregroundStyle(.white.opacity(0.38))
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Folder")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.42))
+                Text(folder)
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .managerField(isValid: true)
+        .help("Folder is controlled by the selected directory. Move profiles by editing folders in the server list.")
+    }
+
+    private func secretField(
+        title: String,
+        icon: String,
+        placeholder: String,
+        focus: Field,
+        validator: @escaping (String) -> Bool,
+        help: String
+    ) -> some View {
+        let isValid = validator(authSecret)
+
+        return HStack(spacing: 10) {
+            Image(systemName: icon)
+                .foregroundStyle(.white.opacity(0.38))
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.42))
+                Group {
+                    if showsSecret {
+                        TextField(placeholder, text: $authSecret)
+                    } else {
+                        SecureField(placeholder, text: $authSecret)
+                    }
+                }
+                .focused($focusedField, equals: focus)
+                .textFieldStyle(.plain)
+            }
 
             Button {
-                showsPassword.toggle()
+                showsSecret.toggle()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
-                    focusedField = .password
+                    focusedField = focus
                 }
             } label: {
-                Image(systemName: showsPassword ? "eye.slash" : "eye")
+                Image(systemName: showsSecret ? "eye.slash" : "eye")
                     .foregroundStyle(.white.opacity(0.5))
             }
             .buttonStyle(.plain)
+            .help(showsSecret ? "Hide secret" : "Show secret")
         }
-        .managerField()
+        .managerField(isValid: isValid)
+        .help(help)
     }
 
-    private func field(_ fieldType: Field, icon: String, placeholder: String, text: Binding<String>) -> some View {
-        HStack(spacing: 9) {
-            Image(systemName: icon)
-                .foregroundStyle(.white.opacity(0.35))
-                .frame(width: 16)
+    private func validatedField(
+        _ fieldType: Field,
+        title: String,
+        icon: String,
+        placeholder: String,
+        text: Binding<String>,
+        pattern: String? = nil,
+        validator: ((String) -> Bool)? = nil,
+        help: String
+    ) -> some View {
+        let isValid = validator?(text.wrappedValue) ?? (pattern.map { matches(text.wrappedValue, pattern: $0) } ?? true)
 
-            TextField(placeholder, text: text)
-                .textFieldStyle(.plain)
+        return HStack(spacing: 10) {
+            Image(systemName: icon)
+                .foregroundStyle(.white.opacity(0.38))
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.42))
+                TextField(placeholder, text: text)
+                    .focused($focusedField, equals: fieldType)
+                    .textFieldStyle(.plain)
+            }
+
+            Image(systemName: isValid ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(isValid ? Color.green.opacity(0.7) : Color.orange.opacity(0.85))
         }
-        .focused($focusedField, equals: fieldType)
-        .managerField()
+        .managerField(isValid: isValid)
+        .help(help)
     }
 
     private func load() {
@@ -683,7 +916,9 @@ private struct ServerProfileEditorSheet: View {
             host = profile.host
             port = "\(profile.port)"
             username = profile.username
-            password = passwordForProfile(profile.id)
+            authenticationMethod = profile.authenticationMethod
+            privateKeyPath = profile.privateKeyPath
+            authSecret = authSecretForProfile(profile.id)
         }
     }
 
@@ -695,7 +930,9 @@ private struct ServerProfileEditorSheet: View {
                 host: host,
                 port: Int(port) ?? 22,
                 username: username,
-                group: finalFolder
+                group: finalFolder,
+                authenticationMethod: authenticationMethod,
+                privateKeyPath: privateKeyPath
             )
         case .edit(let profile):
             return ServerProfile(
@@ -705,24 +942,52 @@ private struct ServerProfileEditorSheet: View {
                 port: Int(port) ?? 22,
                 username: username,
                 group: finalFolder,
+                authenticationMethod: authenticationMethod,
+                privateKeyPath: privateKeyPath,
                 lastConnectedAt: profile.lastConnectedAt
             )
         }
+    }
+
+    private func choosePrivateKey() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ssh")
+        if panel.runModal() == .OK, let url = panel.url {
+            privateKeyPath = url.path
+        }
+    }
+
+    private func settingsSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.58))
+            VStack(spacing: 10) {
+                content()
+            }
+        }
+    }
+
+    private func matches(_ value: String, pattern: String) -> Bool {
+        value.range(of: pattern, options: .regularExpression) != nil
     }
 }
 
 // MARK: - View 独占样式扩展
 private extension View {
-    func managerField() -> some View {
+    func managerField(isValid: Bool = true) -> some View {
         self
             .font(.system(size: 13))
             .foregroundStyle(.white)
-            .padding(.horizontal, 10)
-            .frame(height: 32)
-            .background(.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 5))
+            .padding(.horizontal, 12)
+            .frame(minHeight: 44)
+            .background(.black.opacity(0.22), in: RoundedRectangle(cornerRadius: 7))
             .overlay {
-                RoundedRectangle(cornerRadius: 5)
-                    .stroke(.white.opacity(0.1), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(isValid ? .white.opacity(0.1) : .orange.opacity(0.5), lineWidth: 1)
             }
     }
 }

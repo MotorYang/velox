@@ -5,8 +5,8 @@ import SwiftUI
 final class ShellWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
 
-    func open(profile: ServerProfile, password: String, serverStore: ServerDirectoryStore) {
-        let shellView = ShellWindowView(profile: profile, password: password, serverStore: serverStore)
+    func open(profile: ServerProfile, auth: SSHAuthentication, serverStore: ServerDirectoryStore) {
+        let shellView = ShellWindowView(profile: profile, auth: auth, serverStore: serverStore)
             .environmentObject(VeloxSettings.shared)
         let hostingController = NSHostingController(rootView: shellView)
         let window = NSWindow(contentViewController: hostingController)
@@ -29,7 +29,7 @@ final class ShellWindowController: NSObject, NSWindowDelegate {
 private struct ShellWindowView: View {
     @EnvironmentObject private var settings: VeloxSettings
     let profile: ServerProfile
-    let password: String
+    let auth: SSHAuthentication
     @ObservedObject var serverStore: ServerDirectoryStore
 
     @StateObject private var sessionManager = TerminalSessionManager()
@@ -100,7 +100,7 @@ private struct ShellWindowView: View {
                     host: profile.host,
                     port: profile.port,
                     user: profile.username,
-                    auth: .password(password)
+                    auth: auth
                 )
                 serverStore.markConnected(profile)
             } catch {
