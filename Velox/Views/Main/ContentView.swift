@@ -18,20 +18,32 @@ struct ContentView: View {
     @State private var isDropTargeted = false
     @State private var showsSFTPPane = false
     @State private var serverManagerWindowController: ServerManagerWindowController?
+    @State private var contextMenuShellWindows: [ShellWindowController] = []
     @State private var window: NSWindow?
     @State private var didApplyInitialWindowSettings = false
+    @State private var localCurrentDirectory = FileManager.default.homeDirectoryForCurrentUser.path
 
     var body: some View {
         ZStack {
             appBackground
 
             if sessionManager.isConnected {
-                RemoteShellSplitView(sessionManager: sessionManager, showsFilePane: $showsSFTPPane)
+                RemoteShellSplitView(
+                    sessionManager: sessionManager,
+                    showsFilePane: $showsSFTPPane,
+                    serverStore: serverStore,
+                    connectProfile: connectServerFromContextMenu
+                )
             } else {
-                LocalTerminalViewBridge(settings: settings)
+                LocalTerminalViewBridge(
+                    settings: settings,
+                    serverStore: serverStore,
+                    currentDirectory: $localCurrentDirectory,
+                    connectProfile: connectServerFromContextMenu
+                )
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
-                    .background(Color(nsColor: settings.terminalBackgroundColor))
+                    .background(Color(nsColor: settings.terminalSurfaceBackgroundColor))
             }
 
             uploadOverlay
@@ -56,6 +68,9 @@ struct ContentView: View {
             applyMainWindowSettings()
         }
         .onChange(of: sessionManager.remoteTitlePrefix) { _, _ in
+            applyMainWindowSettings()
+        }
+        .onChange(of: localCurrentDirectory) { _, _ in
             applyMainWindowSettings()
         }
         .background(WindowAccessor { newWindow in
@@ -113,7 +128,7 @@ struct ContentView: View {
 
     private var localWorkingDirectory: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let path = FileManager.default.currentDirectoryPath
+        let path = localCurrentDirectory
         if path == home {
             return "~"
         }
@@ -126,11 +141,7 @@ struct ContentView: View {
     }
 
     private var appBackground: some View {
-        LinearGradient(
-            colors: settings.backgroundGradientColors,
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        Color(nsColor: settings.terminalBackgroundColor)
         .ignoresSafeArea()
     }
 
@@ -157,19 +168,39 @@ struct ContentView: View {
         }
 
         serverManagerWindowController?.open(store: serverStore) { profile, auth in
-            Task {
-                do {
-                    try await sessionManager.connect(
-                        host: profile.host,
-                        port: profile.port,
-                        user: profile.username,
-                        auth: auth
-                    )
-                    serverStore.markConnected(profile)
-                } catch {
-                    // 处理或向外抛出连接错误
-                    print("Connection failed: \(error.localizedDescription)")
-                }
+            connect(profile: profile, auth: auth)
+        }
+    }
+
+    private func connectServerFromContextMenu(_ profile: ServerProfile) {
+        Task { @MainActor in
+            do {
+                let auth = try serverStore.authentication(for: profile)
+                openServerInNewWindow(profile: profile, auth: auth)
+            } catch {
+                print("Connection failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func openServerInNewWindow(profile: ServerProfile, auth: SSHAuthentication) {
+        let controller = ShellWindowController()
+        controller.open(profile: profile, auth: auth, serverStore: serverStore)
+        contextMenuShellWindows.append(controller)
+    }
+
+    private func connect(profile: ServerProfile, auth: SSHAuthentication) {
+        Task {
+            do {
+                try await sessionManager.connect(
+                    host: profile.host,
+                    port: profile.port,
+                    user: profile.username,
+                    auth: auth
+                )
+                serverStore.markConnected(profile)
+            } catch {
+                print("Connection failed: \(error.localizedDescription)")
             }
         }
     }

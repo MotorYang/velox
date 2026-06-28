@@ -43,15 +43,10 @@ struct SettingsView: View {
                 .padding(24)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .background(
-                LinearGradient(
-                    colors: settings.backgroundGradientColors,
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
+            .background(Color(nsColor: settings.terminalSurfaceBackgroundColor))
         }
         .frame(width: 720, height: 470)
+        .background(Color(nsColor: settings.terminalBackgroundColor))
         .background(WindowAccessor { newWindow in
             window = newWindow
             VeloxWindowStyler.applyTerminalWindowStyle(
@@ -107,7 +102,7 @@ struct SettingsView: View {
         }
         .padding(12)
         .frame(width: 168)
-        .background(Color(nsColor: settings.terminalBackgroundColor))
+        .background(Color(nsColor: settings.terminalSurfaceBackgroundColor))
     }
 
     private var sectionHeader: some View {
@@ -166,7 +161,7 @@ private struct TerminalProfileSettings: View {
                     .padding(.horizontal, 10)
                     .frame(height: 36)
                     .frame(maxWidth: 360, alignment: .leading)
-                    .background(Color(nsColor: settings.terminalBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                    .background(Color(nsColor: settings.terminalSurfaceBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
                     .foregroundStyle(Color(nsColor: settings.terminalForegroundColor))
             }
         }
@@ -275,7 +270,7 @@ private struct SettingsGroup<Content: View>: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: settings.terminalBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .background(Color(nsColor: settings.terminalSurfaceBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)

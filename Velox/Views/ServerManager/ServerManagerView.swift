@@ -63,13 +63,7 @@ struct ServerManagerView: View {
             serverTreeDirectory
         }
         .frame(minWidth: 780, minHeight: 560)
-        .background(
-            LinearGradient(
-                colors: settings.backgroundGradientColors,
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
+        .background(Color(nsColor: settings.terminalBackgroundColor))
         .foregroundStyle(.white.opacity(0.9))
         // 顶层按键响应：如果选中的是普通节点，按 Delete 键删除
         .onDeleteCommand {

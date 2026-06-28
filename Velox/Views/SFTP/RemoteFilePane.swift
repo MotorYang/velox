@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct RemoteFilePane: View {
+    @EnvironmentObject private var settings: VeloxSettings
     @ObservedObject var sessionManager: TerminalSessionManager
     let close: () -> Void
 
@@ -31,20 +32,20 @@ struct RemoteFilePane: View {
 
             Text(sessionManager.currentRemotePath)
                 .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.56))
+                .foregroundStyle(secondaryForeground)
                 .lineLimit(1)
                 .padding(.horizontal, 14)
                 .padding(.bottom, 10)
 
             Divider()
-                .overlay(.white.opacity(0.08))
+                .overlay(dividerColor)
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(sessionManager.remoteFiles) { file in
                         HStack(spacing: 9) {
                             Image(systemName: file.isDirectory ? "folder.fill" : "doc.fill")
-                                .foregroundStyle(file.isDirectory ? .yellow.opacity(0.82) : .white.opacity(0.56))
+                                .foregroundStyle(file.isDirectory ? folderColor : secondaryForeground)
                                 .frame(width: 16)
 
                             Text(file.name)
@@ -61,13 +62,31 @@ struct RemoteFilePane: View {
                 .padding(.vertical, 8)
             }
         }
-        .foregroundStyle(.white.opacity(0.9))
+        .foregroundStyle(primaryForeground)
         .frame(maxHeight: .infinity)
-        .background(.ultraThinMaterial)
+        .background(Color(nsColor: settings.terminalSurfaceBackgroundColor))
         .overlay(alignment: .leading) {
             Rectangle()
-                .fill(.white.opacity(0.09))
+                .fill(dividerColor)
                 .frame(width: 1)
         }
+    }
+
+    private var primaryForeground: Color {
+        Color(nsColor: settings.terminalForegroundColor)
+    }
+
+    private var secondaryForeground: Color {
+        primaryForeground.opacity(settings.appearanceMode == .light ? 0.58 : 0.62)
+    }
+
+    private var dividerColor: Color {
+        primaryForeground.opacity(settings.appearanceMode == .light ? 0.12 : 0.1)
+    }
+
+    private var folderColor: Color {
+        settings.appearanceMode == .light
+            ? Color(red: 0.78, green: 0.52, blue: 0.08)
+            : Color(red: 0.95, green: 0.72, blue: 0.18)
     }
 }

@@ -104,13 +104,21 @@ final class VeloxSettings: ObservableObject {
         isTransparent ? CGFloat(1 - transparency) : 1
     }
 
-    var terminalBackgroundColor: NSColor {
+    var terminalOpaqueBackgroundColor: NSColor {
         switch appearanceMode {
         case .light:
-            return NSColor(calibratedRed: 0.955, green: 0.957, blue: 0.95, alpha: effectiveAlpha)
+            return NSColor(calibratedRed: 0.91, green: 0.92, blue: 0.9, alpha: 1)
         case .system, .dark:
-            return NSColor(calibratedRed: 0.035, green: 0.038, blue: 0.04, alpha: effectiveAlpha)
+            return NSColor(calibratedRed: 0.035, green: 0.038, blue: 0.04, alpha: 1)
         }
+    }
+
+    var terminalBackgroundColor: NSColor {
+        terminalOpaqueBackgroundColor.withAlphaComponent(effectiveAlpha)
+    }
+
+    var terminalSurfaceBackgroundColor: NSColor {
+        isTransparent ? .clear : terminalOpaqueBackgroundColor
     }
 
     var terminalForegroundColor: NSColor {
@@ -126,8 +134,8 @@ final class VeloxSettings: ObservableObject {
         switch appearanceMode {
         case .light:
             return [
-                Color(red: 0.955, green: 0.957, blue: 0.95).opacity(effectiveAlpha),
-                Color(red: 0.89, green: 0.91, blue: 0.9).opacity(effectiveAlpha)
+                Color(red: 0.91, green: 0.92, blue: 0.9).opacity(effectiveAlpha),
+                Color(red: 0.86, green: 0.88, blue: 0.86).opacity(effectiveAlpha)
             ]
         case .system, .dark:
             return [
@@ -145,7 +153,7 @@ final class VeloxSettings: ObservableObject {
         guard let window else { return }
         window.appearance = appearanceMode.nsAppearance
         window.isOpaque = !isTransparent
-        window.backgroundColor = terminalBackgroundColor
+        window.backgroundColor = isTransparent ? .clear : terminalOpaqueBackgroundColor
 
         if isTransparent {
             window.titlebarAppearsTransparent = true

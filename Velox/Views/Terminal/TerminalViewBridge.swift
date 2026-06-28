@@ -5,6 +5,8 @@ import SwiftUI
 struct TerminalViewBridge: NSViewRepresentable {
     @ObservedObject var sessionManager: TerminalSessionManager
     @ObservedObject var settings: VeloxSettings
+    var serverStore: ServerDirectoryStore? = nil
+    var connectProfile: (@MainActor (ServerProfile) -> Void)? = nil
 
     final class Coordinator: NSObject, TerminalViewDelegate {
         let sessionManager: TerminalSessionManager
@@ -60,7 +62,11 @@ struct TerminalViewBridge: NSViewRepresentable {
         try? view.setUseMetal(false)
         applySettings(to: view)
         TerminalChromeStyler.apply(to: view)
-        TerminalContextMenuInstaller.install(on: view)
+        TerminalContextMenuInstaller.install(
+            on: view,
+            serverStore: serverStore,
+            connectProfile: connectProfile
+        )
         view.feed(text: "\(sessionManager.statusMessage)\r\n")
 
         startBridge(afterViewUpdate: view)
@@ -71,7 +77,11 @@ struct TerminalViewBridge: NSViewRepresentable {
     func updateNSView(_ nsView: TerminalView, context: Context) {
         applySettings(to: nsView)
         TerminalChromeStyler.apply(to: nsView)
-        TerminalContextMenuInstaller.install(on: nsView)
+        TerminalContextMenuInstaller.install(
+            on: nsView,
+            serverStore: serverStore,
+            connectProfile: connectProfile
+        )
         startBridge(afterViewUpdate: nsView)
         nsView.needsDisplay = true
     }
@@ -79,8 +89,8 @@ struct TerminalViewBridge: NSViewRepresentable {
     private func applySettings(to view: TerminalView) {
         view.wantsLayer = true
         view.layer?.isOpaque = false
-        view.layer?.backgroundColor = settings.terminalBackgroundColor.cgColor
-        view.nativeBackgroundColor = settings.terminalBackgroundColor
+        view.layer?.backgroundColor = settings.terminalSurfaceBackgroundColor.cgColor
+        view.nativeBackgroundColor = settings.terminalSurfaceBackgroundColor
         view.nativeForegroundColor = settings.terminalForegroundColor
         view.font = settings.terminalFont
     }

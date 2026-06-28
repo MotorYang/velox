@@ -37,11 +37,7 @@ private struct ShellWindowView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: settings.backgroundGradientColors,
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            Color(nsColor: settings.terminalBackgroundColor)
                 .ignoresSafeArea()
 
             if sessionManager.isConnected {

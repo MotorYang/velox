@@ -4,12 +4,26 @@ import SwiftUI
 
 struct LocalTerminalViewBridge: NSViewRepresentable {
     @ObservedObject var settings: VeloxSettings
+    @ObservedObject var serverStore: ServerDirectoryStore
+    @Binding var currentDirectory: String
+    let connectProfile: @MainActor (ServerProfile) -> Void
 
     func makeNSView(context: Context) -> LocalTerminalContainerView {
-        LocalTerminalContainerView(settings: settings)
+        let view = LocalTerminalContainerView(settings: settings)
+        view.onCurrentDirectoryChange = { directory in
+            currentDirectory = directory
+        }
+        view.serverStore = serverStore
+        view.connectProfile = connectProfile
+        return view
     }
 
     func updateNSView(_ nsView: LocalTerminalContainerView, context: Context) {
+        nsView.onCurrentDirectoryChange = { directory in
+            currentDirectory = directory
+        }
+        nsView.serverStore = serverStore
+        nsView.connectProfile = connectProfile
         nsView.apply(settings: settings)
         nsView.scheduleStart()
         nsView.requestFocus()
@@ -26,6 +40,9 @@ final class LocalTerminalContainerView: NSView, @preconcurrency LocalProcessTerm
     private var settings: VeloxSettings
     private var didStartProcess = false
     private var hasQueuedStart = false
+    var onCurrentDirectoryChange: ((String) -> Void)?
+    weak var serverStore: ServerDirectoryStore?
+    var connectProfile: (@MainActor (ServerProfile) -> Void)?
 
     init(settings: VeloxSettings) {
         self.settings = settings
@@ -92,14 +109,18 @@ final class LocalTerminalContainerView: NSView, @preconcurrency LocalProcessTerm
         self.settings = settings
         wantsLayer = true
         layer?.isOpaque = false
-        layer?.backgroundColor = settings.terminalBackgroundColor.cgColor
+        layer?.backgroundColor = settings.terminalSurfaceBackgroundColor.cgColor
         terminalView.wantsLayer = true
         terminalView.layer?.isOpaque = false
-        terminalView.nativeBackgroundColor = settings.terminalBackgroundColor
+        terminalView.nativeBackgroundColor = settings.terminalSurfaceBackgroundColor
         terminalView.nativeForegroundColor = settings.terminalForegroundColor
         terminalView.font = settings.terminalFont
         TerminalChromeStyler.apply(to: terminalView)
-        TerminalContextMenuInstaller.install(on: terminalView)
+        TerminalContextMenuInstaller.install(
+            on: terminalView,
+            serverStore: serverStore,
+            connectProfile: connectProfile
+        )
         terminalView.needsDisplay = true
     }
 
@@ -149,16 +170,36 @@ final class LocalTerminalContainerView: NSView, @preconcurrency LocalProcessTerm
         terminalView.startProcess(
             executable: shell,
             execName: "-\(shellName)",
-            currentDirectory: FileManager.default.homeDirectoryForCurrentUser.path
+            currentDirectory: settingsInitialDirectory
         )
+        onCurrentDirectoryChange?(settingsInitialDirectory)
         requestFocus()
     }
 
     func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
     func setTerminalTitle(source: LocalProcessTerminalView, title: String) {}
-    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
+    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
+        guard let directory = normalizedDirectory(directory) else { return }
+        onCurrentDirectoryChange?(directory)
+    }
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {
         didStartProcess = false
+    }
+
+    private var settingsInitialDirectory: String {
+        FileManager.default.homeDirectoryForCurrentUser.path
+    }
+
+    private func normalizedDirectory(_ directory: String?) -> String? {
+        guard let directory, !directory.isEmpty else {
+            return nil
+        }
+
+        if let url = URL(string: directory), url.isFileURL {
+            return url.path
+        }
+
+        return directory
     }
 }
