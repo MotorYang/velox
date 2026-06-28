@@ -89,6 +89,7 @@ struct TerminalViewBridge: NSViewRepresentable {
                 view.feed(byteArray: bytes)
             }
             view.window?.makeFirstResponder(view)
+            KeyboardInputSourceSwitcher.switchToEnglish()
         }
     }
 }

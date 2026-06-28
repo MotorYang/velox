@@ -80,6 +80,7 @@ final class LocalTerminalContainerView: NSView, @preconcurrency LocalProcessTerm
         DispatchQueue.main.async { [weak self] in
             guard let self, self.window != nil else { return }
             self.window?.makeFirstResponder(self.terminalView)
+            KeyboardInputSourceSwitcher.switchToEnglish()
         }
     }
 
