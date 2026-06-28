@@ -8,23 +8,14 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+// MARK: - 主视图
 struct ContentView: View {
     @StateObject private var sessionManager = TerminalSessionManager()
     @StateObject private var serverStore = ServerDirectoryStore()
 
     @State private var selectedProfileID: UUID?
-    @State private var profileName = ""
-    @State private var group = "Default"
-    @State private var host = ""
-    @State private var port = "22"
-    @State private var username = ""
-    @State private var password = ""
-    @State private var isConnecting = false
-    @State private var connectionError: String?
     @State private var isDropTargeted = false
-    @State private var showsServerDirectory = false
     @State private var showsSFTPPane = false
-    @State private var showsPassword = false
     @State private var serverManagerWindowController: ServerManagerWindowController?
     @State private var window: NSWindow?
 
@@ -48,10 +39,10 @@ struct ContentView: View {
                     .background(Color.white.opacity(0.05))
             }
         }
-        .onDrop(of: [UTType.fileURL.identifier], isTargeted: $isDropTargeted, perform: uploadDroppedFiles)
-        .onChange(of: selectedProfileID) { _, newValue in
-            loadProfile(id: newValue)
-        }
+        // 升级为强类型现代 Drop 接收器，避免解析 NSItemProvider 的异步线程隐患
+        .dropDestination(for: URL.self) { urls, _ in
+            handleDroppedURLs(urls)
+        } isTargeted: { isDropTargeted = $0 }
         .onChange(of: sessionManager.isConnected) { _, isConnected in
             showsSFTPPane = isConnected
         }
@@ -63,7 +54,8 @@ struct ContentView: View {
             showsSFTPPane = true
         } : nil)
         .onAppear {
-            sessionManager.onShellExit = {
+            // 使用 [weak window] 破除循环引用，防止内存泄漏
+            sessionManager.onShellExit = { [weak window] in
                 window?.close()
             }
         }
@@ -82,99 +74,82 @@ struct ContentView: View {
         .ignoresSafeArea()
     }
 
-    private var topBar: some View {
-        HStack(spacing: 12) {
-            Label("Velox", systemImage: "terminal")
-                .font(.system(size: 13, weight: .semibold))
+    @ViewBuilder
+    private var uploadOverlay: some View {
+        if sessionManager.showUploadIndicator {
+            VStack {
+                ProgressView(value: sessionManager.uploadProgress)
+                    .progressViewStyle(.linear)
+                    .frame(width: 240)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(.top, 60)
 
-            statusPill
-
-            Spacer(minLength: 24)
-
-            Button {
-                openServerManager()
-            } label: {
-                Image(systemName: "server.rack")
+                Spacer()
             }
-            .help("Servers")
-            .keyboardShortcut("p", modifiers: .command)
-
-            Button {
-                showsSFTPPane.toggle()
-            } label: {
-                Image(systemName: "folder")
-            }
-            .help("SFTP")
-            .keyboardShortcut("f", modifiers: [.command, .shift])
-            .disabled(!sessionManager.isConnected)
-
-            Button {
-                Task { try? await sessionManager.disconnect() }
-            } label: {
-                Image(systemName: "power")
-            }
-            .help("Disconnect SSH")
-            .disabled(!sessionManager.isConnected)
-        }
-        .buttonStyle(.borderless)
-        .foregroundStyle(.white.opacity(0.9))
-        .padding(.horizontal, 18)
-        .frame(height: 46)
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(.white.opacity(0.08))
-                .frame(height: 1)
         }
     }
 
-    private var statusPill: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(sessionManager.isConnected ? Color.green : Color.cyan)
-                .frame(width: 7, height: 7)
-
-            Text(sessionManager.isConnected ? sessionManager.statusMessage : "Local shell")
-                .lineLimit(1)
+    private func openServerManager() {
+        if serverManagerWindowController == nil {
+            serverManagerWindowController = ServerManagerWindowController()
         }
-        .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(.white.opacity(0.74))
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(.black.opacity(0.24), in: Capsule())
-    }
 
-    private var serverDirectoryPanel: some View {
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Label("Servers", systemImage: "server.rack")
-                        .font(.system(size: 17, weight: .semibold))
-
-                    Spacer()
-
-                    Button {
-                        createFolder()
-                    } label: {
-                        Image(systemName: "folder.badge.plus")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Create Folder")
-
-                    Button {
-                        newProfile()
-                    } label: {
-                        Image(systemName: "plus.circle")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Add Server")
+        serverManagerWindowController?.open(store: serverStore) { profile, password in
+            Task {
+                do {
+                    try await sessionManager.connect(
+                        host: profile.host,
+                        port: profile.port,
+                        user: profile.username,
+                        auth: .password(password)
+                    )
+                    serverStore.markConnected(profile)
+                } catch {
+                    // 处理或向外抛出连接错误
+                    print("Connection failed: \(error.localizedDescription)")
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-
-                serverList
             }
-            .frame(width: 260)
+        }
+    }
+
+    private func handleDroppedURLs(_ urls: [URL]) -> Bool {
+        guard sessionManager.isConnected else { return false }
+        Task { @MainActor in
+            for url in urls {
+                try? await sessionManager.uploadFile(localURL: url)
+            }
+        }
+        return true
+    }
+}
+
+// MARK: - 抽离出来的独立服务器目录与配置面板 Component
+struct ServerDirectoryPanel: View {
+    @ObservedObject var serverStore: ServerDirectoryStore
+    @ObservedObject var sessionManager: TerminalSessionManager
+    @Binding var selectedProfileID: UUID?
+    
+    @Environment(\.dismiss) private var dismiss // 用于控制面板隐藏（视具体交互而定）
+
+    // 收拢所有表单局部状态，打字时不再引发主视图无用重绘
+    @State private var profileName = ""
+    @State private var group = "Default"
+    @State private var host = ""
+    @State private var port = "22"
+    @State private var username = ""
+    @State private var password = ""
+    @State private var isConnecting = false
+    @State private var connectionError: String?
+    @State private var showsPassword = false
+    
+    @FocusState private var isPasswordFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 0) {
+            serverList
+                .frame(width: 260)
 
             Divider()
                 .overlay(.white.opacity(0.1))
@@ -190,82 +165,112 @@ struct ContentView: View {
                 .stroke(.white.opacity(0.12), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.36), radius: 28, y: 16)
+        .onChange(of: selectedProfileID) { _, newValue in
+            loadProfile(id: newValue)
+        }
     }
 
     private var serverList: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 8) {
-                if serverStore.profiles.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("No servers")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("Add a profile, then connect with one click.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.48))
-                    }
-                    .padding(16)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Servers", systemImage: "server.rack")
+                    .font(.system(size: 17, weight: .semibold))
+
+                Spacer()
+
+                Button {
+                    createFolder()
+                } label: {
+                    Image(systemName: "folder.badge.plus")
                 }
+                .buttonStyle(.borderless)
+                .help("Create Folder")
 
-                ForEach(serverStore.folders, id: \.self) { folder in
-                    let profiles = serverStore.profiles.filter { $0.group == folder }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 7) {
-                            Image(systemName: profiles.isEmpty ? "folder" : "folder.fill")
-                                .foregroundStyle(.yellow.opacity(0.86))
-                                .frame(width: 16)
-                            Text(folder)
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.52))
-                                .lineLimit(1)
-                        }
-                        .padding(.horizontal, 12)
-
-                        ForEach(profiles) { profile in
-                            Button {
-                                selectedProfileID = profile.id
-                            } label: {
-                                HStack(spacing: 10) {
-                                    Image(systemName: "terminal")
-                                        .foregroundStyle(.cyan.opacity(0.84))
-                                        .frame(width: 18)
-
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(profile.name)
-                                            .font(.system(size: 13, weight: .semibold))
-                                            .lineLimit(1)
-                                        HStack(spacing: 5) {
-                                            Image(systemName: "person")
-                                            Text("\(profile.username)@\(profile.host):\(profile.port)")
-                                        }
-                                        .font(.system(size: 11, design: .monospaced))
-                                        .foregroundStyle(.white.opacity(0.48))
-                                        .lineLimit(1)
-                                    }
-
-                                    Spacer(minLength: 0)
-
-                                    if profile.lastConnectedAt != nil {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(.green.opacity(0.8))
-                                    }
-                                }
-                                .padding(.horizontal, 12)
-                                .frame(height: 50)
-                                .background(selectedProfileID == profile.id ? .white.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 6))
-                            }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                Button("Delete", role: .destructive) {
-                                    deleteSelected(profile)
-                                }
-                            }
-                        }
-                    }
+                Button {
+                    newProfile()
+                } label: {
+                    Image(systemName: "plus.circle")
                 }
+                .buttonStyle(.borderless)
+                .help("Add Server")
             }
-            .padding(.horizontal, 8)
-            .padding(.bottom, 12)
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    if serverStore.profiles.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("No servers")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("Add a profile, then connect with one click.")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.white.opacity(0.48))
+                        }
+                        .padding(16)
+                    }
+
+                    ForEach(serverStore.folders, id: \.self) { folder in
+                        let profiles = serverStore.profiles.filter { $0.group == folder }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 7) {
+                                Image(systemName: profiles.isEmpty ? "folder" : "folder.fill")
+                                    .foregroundStyle(.yellow.opacity(0.86))
+                                    .frame(width: 16)
+                                Text(folder)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(.white.opacity(0.52))
+                                    .lineLimit(1)
+                            }
+                            .padding(.horizontal, 12)
+
+                            ForEach(profiles) { profile in
+                                Button {
+                                    selectedProfileID = profile.id
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "terminal")
+                                            .foregroundStyle(.cyan.opacity(0.84))
+                                            .frame(width: 18)
+
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(profile.name)
+                                                .font(.system(size: 13, weight: .semibold))
+                                                .lineLimit(1)
+                                            HStack(spacing: 5) {
+                                                Image(systemName: "person")
+                                                Text("\(profile.username)@\(profile.host):\(profile.port)")
+                                            }
+                                            .font(.system(size: 11, design: .monospaced))
+                                            .foregroundStyle(.white.opacity(0.48))
+                                            .lineLimit(1)
+                                        }
+
+                                        Spacer(minLength: 0)
+
+                                        if profile.lastConnectedAt != nil {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .foregroundStyle(.green.opacity(0.8))
+                                        }
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 50)
+                                    .background(selectedProfileID == profile.id ? .white.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                                }
+                                .buttonStyle(.plain)
+                                .contextMenu {
+                                    Button("Delete", role: .destructive) {
+                                        deleteSelected(profile)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 12)
+            }
         }
     }
 
@@ -284,7 +289,8 @@ struct ContentView: View {
                 Spacer()
 
                 Button {
-                    showsServerDirectory = false
+                    // 执行隐藏/关闭行为
+                    dismiss()
                 } label: {
                     Image(systemName: "xmark")
                 }
@@ -309,7 +315,6 @@ struct ContentView: View {
 
                 HStack(spacing: 10) {
                     serverField(icon: "network", placeholder: "Host", text: $host)
-
                     serverField(icon: "number", placeholder: "22", text: $port)
                         .frame(width: 82)
                 }
@@ -360,99 +365,6 @@ struct ContentView: View {
         .padding(16)
     }
 
-    private var sftpPane: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Label("SFTP", systemImage: "folder")
-                    .font(.system(size: 13, weight: .semibold))
-
-                Spacer()
-
-                Button {
-                    Task { try? await sessionManager.fetchRemoteFiles(at: sessionManager.currentRemotePath) }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.borderless)
-
-                Button {
-                    showsSFTPPane = false
-                } label: {
-                    Image(systemName: "sidebar.right")
-                }
-                .buttonStyle(.borderless)
-            }
-            .padding(.horizontal, 14)
-            .frame(height: 44)
-
-            Text(sessionManager.currentRemotePath)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.56))
-                .lineLimit(1)
-                .padding(.horizontal, 14)
-                .padding(.bottom, 10)
-
-            Divider()
-                .overlay(.white.opacity(0.08))
-
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(sessionManager.remoteFiles) { file in
-                        HStack(spacing: 9) {
-                            Image(systemName: file.isDirectory ? "folder.fill" : "doc.fill")
-                                .foregroundStyle(file.isDirectory ? .yellow.opacity(0.82) : .white.opacity(0.56))
-                                .frame(width: 16)
-
-                            Text(file.name)
-                                .font(.system(size: 12))
-                                .lineLimit(1)
-
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 12)
-                        .frame(height: 30)
-                        .contentShape(Rectangle())
-                    }
-                }
-                .padding(.vertical, 8)
-            }
-        }
-        .foregroundStyle(.white.opacity(0.9))
-        .frame(width: 300)
-        .frame(maxHeight: .infinity)
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(.white.opacity(0.09))
-                .frame(width: 1)
-        }
-    }
-
-    @ViewBuilder
-    private var uploadOverlay: some View {
-        if sessionManager.showUploadIndicator {
-            VStack {
-                ProgressView(value: sessionManager.uploadProgress)
-                    .progressViewStyle(.linear)
-                    .frame(width: 240)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(.top, 60)
-
-                Spacer()
-            }
-        }
-    }
-
-    private var selectedProfile: ServerProfile? {
-        guard let selectedProfileID else {
-            return nil
-        }
-
-        return serverStore.profiles.first { $0.id == selectedProfileID }
-    }
-
     private var passwordField: some View {
         HStack(spacing: 9) {
             Image(systemName: "key")
@@ -466,10 +378,15 @@ struct ContentView: View {
                     SecureField("Password", text: $password)
                 }
             }
+            .focused($isPasswordFocused)
             .textFieldStyle(.plain)
 
             Button {
                 showsPassword.toggle()
+                // 解决原生重绘组件时丢失焦点的体验缺陷
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    isPasswordFocused = true
+                }
             } label: {
                 Image(systemName: showsPassword ? "eye.slash" : "eye")
                     .frame(width: 22)
@@ -491,6 +408,12 @@ struct ContentView: View {
                 .textFieldStyle(.plain)
         }
         .veloxField()
+    }
+
+    // MARK: - 内部业务辅助逻辑
+    private var selectedProfile: ServerProfile? {
+        guard let selectedProfileID else { return nil }
+        return serverStore.profiles.first { $0.id == selectedProfileID }
     }
 
     private var canSaveProfile: Bool {
@@ -524,10 +447,7 @@ struct ContentView: View {
     }
 
     private func loadProfile(id: UUID?) {
-        guard let id, let profile = serverStore.profiles.first(where: { $0.id == id }) else {
-            return
-        }
-
+        guard let id, let profile = serverStore.profiles.first(where: { $0.id == id }) else { return }
         profileName = profile.name
         group = profile.group
         host = profile.host
@@ -539,9 +459,7 @@ struct ContentView: View {
 
     @discardableResult
     private func saveCurrentProfile() -> ServerProfile? {
-        guard canSaveProfile else {
-            return nil
-        }
+        guard canSaveProfile else { return nil }
 
         let profile = ServerProfile(
             id: selectedProfileID ?? UUID(),
@@ -565,33 +483,12 @@ struct ContentView: View {
     }
 
     private func connectCurrentProfile() async {
-        guard let profile = saveCurrentProfile() else {
-            return
-        }
+        guard let profile = saveCurrentProfile() else { return }
 
         isConnecting = true
         connectionError = nil
 
-        defer {
-            isConnecting = false
-        }
-
-        do {
-            try await sessionManager.connect(
-                host: profile.host,
-                port: profile.port,
-                user: profile.username,
-                auth: .password(password)
-            )
-            serverStore.markConnected(profile)
-            showsServerDirectory = false
-        } catch {
-            connectionError = error.localizedDescription
-        }
-    }
-
-    private func connect(profile: ServerProfile, password: String) async {
-        connectionError = nil
+        defer { isConnecting = false }
 
         do {
             try await sessionManager.connect(
@@ -604,41 +501,10 @@ struct ContentView: View {
         } catch {
             connectionError = error.localizedDescription
         }
-    }
-
-    private func openServerManager() {
-        if serverManagerWindowController == nil {
-            serverManagerWindowController = ServerManagerWindowController()
-        }
-
-        serverManagerWindowController?.open(store: serverStore) { profile, password in
-            Task {
-                await connect(profile: profile, password: password)
-            }
-        }
-    }
-
-    private func uploadDroppedFiles(_ providers: [NSItemProvider]) -> Bool {
-        guard sessionManager.isConnected else {
-            return false
-        }
-
-        for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            _ = provider.loadDataRepresentation(for: .fileURL) { data, _ in
-                guard let data, let url = URL(dataRepresentation: data, relativeTo: nil) else {
-                    return
-                }
-
-                Task { @MainActor in
-                    try? await sessionManager.uploadFile(localURL: url)
-                }
-            }
-        }
-
-        return true
     }
 }
 
+// MARK: - 全局 View 样式扩展
 private extension View {
     func veloxField() -> some View {
         self
