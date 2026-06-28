@@ -365,14 +365,10 @@ struct ServerManagerView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .layoutPriority(1)
 
-            HStack(spacing: 4) {
-                Text("\(profile.username)@\(profile.host)")
-                Text(":\(profile.port)")
-                    .foregroundStyle(.white.opacity(0.3))
-            }
-            .font(.system(size: 11, design: .monospaced))
-            .foregroundStyle(.white.opacity(0.42))
-            .lineLimit(1)
+            Text("\(profile.username)@\(profile.host):\(profile.port.description)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.42))
+                .lineLimit(1)
 
             Spacer(minLength: 0)
 
