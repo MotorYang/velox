@@ -60,6 +60,7 @@ struct TerminalViewBridge: NSViewRepresentable {
         try? view.setUseMetal(false)
         applySettings(to: view)
         TerminalChromeStyler.apply(to: view)
+        TerminalContextMenuInstaller.install(on: view)
         view.feed(text: "\(sessionManager.statusMessage)\r\n")
 
         startBridge(afterViewUpdate: view)
@@ -70,6 +71,7 @@ struct TerminalViewBridge: NSViewRepresentable {
     func updateNSView(_ nsView: TerminalView, context: Context) {
         applySettings(to: nsView)
         TerminalChromeStyler.apply(to: nsView)
+        TerminalContextMenuInstaller.install(on: nsView)
         startBridge(afterViewUpdate: nsView)
         nsView.needsDisplay = true
     }

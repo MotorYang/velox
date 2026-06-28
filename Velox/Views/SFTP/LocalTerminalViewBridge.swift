@@ -95,6 +95,7 @@ final class LocalTerminalContainerView: NSView, @preconcurrency LocalProcessTerm
         terminalView.nativeForegroundColor = settings.terminalForegroundColor
         terminalView.font = settings.terminalFont
         TerminalChromeStyler.apply(to: terminalView)
+        TerminalContextMenuInstaller.install(on: terminalView)
         terminalView.needsDisplay = true
     }
 
