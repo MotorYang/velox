@@ -13,7 +13,7 @@ final class TerminalSessionManager: ObservableObject {
     @Published private(set) var remoteFiles: [RemoteFile] = []
     @Published var uploadProgress = 0.0
     @Published var showUploadIndicator = false
-    @Published var statusMessage = "正在等待 SSH 连接建立..."
+    @Published var statusMessage = "Connecting to SSH..."
     var onShellExit: (() -> Void)?
 
     private enum TerminalInputEvent: Sendable {
@@ -36,7 +36,7 @@ final class TerminalSessionManager: ObservableObject {
         try await disconnect()
 
         didShellExit = false
-        statusMessage = "正在连接 \(user)@\(host):\(port)..."
+        statusMessage = "Connecting to \(user)@\(host):\(port)..."
 
         let authenticationMethod = try auth.makeCitadelMethod(username: user)
         let sshClient = try await SSHClient.connect(
@@ -51,14 +51,14 @@ final class TerminalSessionManager: ObservableObject {
             Task { @MainActor in
                 self?.isConnected = false
                 self?.isShellActive = false
-                self?.statusMessage = "SSH 连接已断开"
+                self?.statusMessage = "SSH connection disconnected"
             }
         }
 
         self.client = sshClient
         self.sftp = try await sshClient.openSFTP()
         self.isConnected = true
-        self.statusMessage = "SSH 已连接"
+        self.statusMessage = "SSH connected"
 
         try await fetchRemoteFiles(at: ".")
     }
@@ -85,7 +85,7 @@ final class TerminalSessionManager: ObservableObject {
         didShellExit = false
         remoteFiles = []
         currentRemotePath = "/"
-        statusMessage = "SSH 连接已关闭"
+        statusMessage = "SSH connection closed"
     }
 
     func fetchRemoteFiles(at path: String) async throws {
@@ -213,7 +213,7 @@ final class TerminalSessionManager: ObservableObject {
             } catch is CancellationError {
             } catch {
                 await MainActor.run {
-                    self?.statusMessage = "SSH Shell 异常中断: \(error.localizedDescription)"
+                    self?.statusMessage = "SSH Connection Interrupted: \(error.localizedDescription)"
                 }
             }
 

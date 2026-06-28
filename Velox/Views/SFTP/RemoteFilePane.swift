@@ -63,8 +63,7 @@ struct RemoteFilePane: View {
         }
         .foregroundStyle(.white.opacity(0.9))
         .frame(maxHeight: .infinity)
-        .background(Color(red: 0.048, green: 0.052, blue: 0.054))
-        .drawingGroup(opaque: true)
+        .background(.ultraThinMaterial)
         .overlay(alignment: .leading) {
             Rectangle()
                 .fill(.white.opacity(0.09))

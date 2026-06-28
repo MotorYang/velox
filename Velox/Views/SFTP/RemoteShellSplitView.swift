@@ -19,18 +19,18 @@ struct RemoteShellSplitView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                     if showsFilePane {
-                        resizeHandle(totalWidth: geometry.size.width)
+                        resizeHandle
 
                         RemoteFilePane(sessionManager: sessionManager) {
                             showsFilePane = false
                         }
-                        .frame(width: filePaneWidth)
+                        .frame(width: clampedFilePaneWidth(for: geometry.size.width))
                         .clipped()
                     }
                 }
-                .transaction { transaction in
-                    transaction.animation = nil
-                }
+                //.transaction { transaction in
+                //    transaction.animation = nil
+                //}
 
                 if !showsFilePane {
                     collapsedFileButton
@@ -46,9 +46,9 @@ struct RemoteShellSplitView: View {
         }
     }
 
-    private func resizeHandle(totalWidth: CGFloat) -> some View {
+    private var resizeHandle: some View {
         Rectangle()
-            .fill(Color(red: 0.07, green: 0.074, blue: 0.076))
+            .fill(.white.opacity(0.08))
             .frame(width: dividerWidth)
             .overlay {
                 Capsule()
@@ -64,10 +64,9 @@ struct RemoteShellSplitView: View {
                         }
 
                         let proposedWidth = (dragStartWidth ?? filePaneWidth) - value.translation.width
-                        filePaneWidth = clamped(proposedWidth, totalWidth: totalWidth)
+                        filePaneWidth = (dragStartWidth ?? filePaneWidth) - value.translation.width
                     }
                     .onEnded { _ in
-                        filePaneWidth = clamped(filePaneWidth, totalWidth: totalWidth)
                         dragStartWidth = nil
                     }
             )
@@ -96,15 +95,11 @@ struct RemoteShellSplitView: View {
                 .stroke(.white.opacity(0.16), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.28), radius: 14, y: 8)
-        .help("打开远程文件夹")
+        .help("Open remote folder")
     }
 
     private func clampedFilePaneWidth(for totalWidth: CGFloat) -> CGFloat {
-        clamped(filePaneWidth, totalWidth: totalWidth)
-    }
-
-    private func clamped(_ width: CGFloat, totalWidth: CGFloat) -> CGFloat {
         let availableMax = max(minFilePaneWidth, min(maxFilePaneWidth, totalWidth - 360))
-        return min(max(width, minFilePaneWidth), availableMax)
+        return min(max(filePaneWidth, minFilePaneWidth), availableMax)
     }
 }

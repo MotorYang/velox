@@ -78,7 +78,7 @@ private struct ShellWindowView: View {
                 )
                 serverStore.markConnected(profile)
             } catch {
-                connectionError = "SSH 连接失败: \(error.localizedDescription)"
+                connectionError = "SSH connection failure: \(error.localizedDescription)"
             }
         }
     }
