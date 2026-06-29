@@ -57,7 +57,7 @@ Velox 是一款面向 macOS 的原生终端与 SSH/SFTP 客户端。项目使用
 1. 克隆仓库：
 
    ```bash
-   git clone https://github.com/motoryang/Velox.git
+   git clone https://github.com/MotorYang/velox.git
    cd Velox
    ```
 

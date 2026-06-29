@@ -161,6 +161,19 @@ h3 {
   color: var(--muted);
 }
 
+.version-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 18px;
+  padding: 7px 10px;
+  border: 1px solid rgba(105, 240, 255, 0.28);
+  border-radius: 8px;
+  color: var(--cyan-strong);
+  background: rgba(105, 240, 255, 0.08);
+  font-size: 13px;
+  font-weight: 750;
+}
+
 .hero-text {
   max-width: 640px;
   margin-bottom: 34px;

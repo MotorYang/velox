@@ -57,7 +57,7 @@ Dependency versions are pinned in `Velox.xcodeproj/project.xcworkspace/xcsharedd
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/motoryang/Velox.git
+   git clone https://github.com/MotorYang/velox.git
    cd Velox
    ```
 
