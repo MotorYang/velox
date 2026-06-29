@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Velox - Native macOS Terminal and SSH/SFTP Client</title>
+    <meta
+      name="description"
+      content="Velox is a native macOS terminal, SSH, and SFTP client built with Swift. It brings local terminals, remote shells, server profiles, and file transfer into one lightweight window."
+    >
+    <meta property="og:title" content="Velox">
+    <meta property="og:description" content="Native macOS terminal, SSH, and SFTP client.">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="Velox/Supporting%20Files/app_logo.png">
+    <link rel="icon" href="Velox/Supporting%20Files/app_logo.png">
+    <link rel="stylesheet" href="site.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="Velox Home">
+        <img src="Velox/Supporting%20Files/app_logo.png" alt="Velox Logo">
+        <span>Velox</span>
+      </a>
+      <nav class="nav" aria-label="Primary navigation">
+        <a href="#features">Features</a>
+        <a href="#workflow">Workflow</a>
+        <a href="#stack">Stack</a>
+        <a href="README.md">Docs</a>
+        <span class="language-switch" aria-label="Language switcher">
+          <strong>EN</strong>
+          <a href="index_cn.html">中文</a>
+        </span>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Native macOS Terminal</p>
+          <h1>Terminal, SSH, and SFTP in one focused window</h1>
+          <p class="hero-text">
+            Velox is built with SwiftUI, AppKit, SwiftTerm, Citadel, and SwiftNIO.
+            It combines local terminals, remote shells, server profiles, Keychain credentials,
+            and file transfer into a lightweight native macOS tool.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="https://github.com/motoryang/Velox">View on GitHub</a>
+            <a class="button secondary" href="README.md">Read the Docs</a>
+          </div>
+        </div>
+
+        <div class="hero-visual" aria-label="Velox interface preview">
+          <div class="window">
+            <div class="traffic-lights" aria-hidden="true">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <div class="terminal">
+              <p><span class="prompt">local</span> % ssh deploy@velox.dev</p>
+              <p>Connected to deploy@velox.dev</p>
+              <p><span class="prompt">remote</span> $ ls /var/www</p>
+              <p>app&nbsp;&nbsp;assets&nbsp;&nbsp;releases&nbsp;&nbsp;logs</p>
+              <p><span class="prompt">sftp</span> upload ./dist -> /var/www/app</p>
+              <p class="ok">Transfer complete · 18 files · 2.4 MB</p>
+            </div>
+            <aside class="file-pane">
+              <div class="path">/var/www/app</div>
+              <div class="file folder">assets</div>
+              <div class="file">index.html</div>
+              <div class="file">app.js</div>
+              <div class="file">style.css</div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section id="features" class="section">
+        <div class="section-heading">
+          <p class="eyebrow">Features</p>
+          <h2>Built for daily remote development tasks</h2>
+        </div>
+        <div class="feature-grid">
+          <article class="feature">
+            <h3>Local and Remote Terminals</h3>
+            <p>Start in a local terminal, then open SSH shells from saved server profiles with synchronized title and remote path state.</p>
+          </article>
+          <article class="feature">
+            <h3>SFTP File Pane</h3>
+            <p>Browse remote folders, jump to paths, upload, download, rename, and delete files without switching tools.</p>
+          </article>
+          <article class="feature">
+            <h3>Drag-to-Upload</h3>
+            <p>Drop files or folders from Finder into the remote pane and upload them to the active SFTP directory.</p>
+          </article>
+          <article class="feature">
+            <h3>Server Directory</h3>
+            <p>Organize servers in folders, clone profiles, edit connection settings, delete entries, and double-click to connect.</p>
+          </article>
+          <article class="feature">
+            <h3>Keychain Credentials</h3>
+            <p>Passwords and private-key passphrases are stored in macOS Keychain; profiles keep only required connection metadata.</p>
+          </article>
+          <article class="feature">
+            <h3>Native Appearance</h3>
+            <p>Configure terminal font, font size, window size, light or dark appearance, and transparency for a macOS-native workflow.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="workflow" class="section split-section">
+        <div>
+          <p class="eyebrow">Workflow</p>
+          <h2>Less context switching, more focus</h2>
+          <p>
+            Velox keeps common post-login tasks in the same context:
+            connect to a server, inspect directories, upload build artifacts, download logs,
+            and continue working in the shell.
+          </p>
+        </div>
+        <ol class="steps">
+          <li>
+            <span>01</span>
+            <strong>Save server profiles</strong>
+            <p>Configure host, port, username, and authentication method.</p>
+          </li>
+          <li>
+            <span>02</span>
+            <strong>Double-click to connect</strong>
+            <p>Open a remote shell and prepare an SFTP session at the same time.</p>
+          </li>
+          <li>
+            <span>03</span>
+            <strong>Transfer files</strong>
+            <p>Upload and download through the file pane or Finder drag and drop.</p>
+          </li>
+        </ol>
+      </section>
+
+      <section id="stack" class="section stack-section">
+        <div class="section-heading">
+          <p class="eyebrow">Stack</p>
+          <h2>A pure Swift macOS toolchain</h2>
+        </div>
+        <div class="stack-list" aria-label="Velox technology stack">
+          <span>SwiftUI</span>
+          <span>AppKit</span>
+          <span>SwiftTerm</span>
+          <span>Citadel</span>
+          <span>SwiftNIO</span>
+          <span>Swift Crypto</span>
+          <span>Keychain</span>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div>
+        <strong>Velox</strong>
+        <p>Released under the MIT License.</p>
+      </div>
+      <div class="footer-links">
+        <a href="README.md">English README</a>
+        <a href="README_CN.md">中文文档</a>
+        <a href="https://github.com/motoryang/Velox">GitHub</a>
+      </div>
+    </footer>
+  </body>
+</html>

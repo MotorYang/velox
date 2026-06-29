@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Velox - macOS 原生终端与 SSH/SFTP 客户端</title>
+    <meta
+      name="description"
+      content="Velox 是使用 Swift 构建的 macOS 原生终端、SSH 与 SFTP 客户端，把本地终端、远程 Shell、服务器管理和文件传输整合在一个轻量窗口中。"
+    >
+    <meta property="og:title" content="Velox">
+    <meta property="og:description" content="macOS 原生终端、SSH 与 SFTP 客户端。">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="Velox/Supporting%20Files/app_logo.png">
+    <link rel="icon" href="Velox/Supporting%20Files/app_logo.png">
+    <link rel="stylesheet" href="site.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="Velox Home">
+        <img src="Velox/Supporting%20Files/app_logo.png" alt="Velox Logo">
+        <span>Velox</span>
+      </a>
+      <nav class="nav" aria-label="Primary navigation">
+        <a href="#features">功能</a>
+        <a href="#workflow">使用场景</a>
+        <a href="#stack">技术栈</a>
+        <a href="README_CN.md">文档</a>
+        <span class="language-switch" aria-label="语言切换">
+          <a href="index.html">EN</a>
+          <strong>中文</strong>
+        </span>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Native macOS Terminal</p>
+          <h1>一个窗口完成终端、SSH 与 SFTP 工作流</h1>
+          <p class="hero-text">
+            Velox 使用 SwiftUI、AppKit、SwiftTerm、Citadel 和 SwiftNIO 构建，
+            把本地终端、远程 Shell、服务器资料、Keychain 凭据和文件传输整合进一个轻量的 macOS 原生工具。
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="https://github.com/motoryang/Velox">查看 GitHub</a>
+            <a class="button secondary" href="README_CN.md">阅读文档</a>
+          </div>
+        </div>
+
+        <div class="hero-visual" aria-label="Velox interface preview">
+          <div class="window">
+            <div class="traffic-lights" aria-hidden="true">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <div class="terminal">
+              <p><span class="prompt">local</span> % ssh deploy@velox.dev</p>
+              <p>Connected to deploy@velox.dev</p>
+              <p><span class="prompt">remote</span> $ ls /var/www</p>
+              <p>app&nbsp;&nbsp;assets&nbsp;&nbsp;releases&nbsp;&nbsp;logs</p>
+              <p><span class="prompt">sftp</span> upload ./dist -> /var/www/app</p>
+              <p class="ok">Transfer complete · 18 files · 2.4 MB</p>
+            </div>
+            <aside class="file-pane">
+              <div class="path">/var/www/app</div>
+              <div class="file folder">assets</div>
+              <div class="file">index.html</div>
+              <div class="file">app.js</div>
+              <div class="file">style.css</div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section id="features" class="section">
+        <div class="section-heading">
+          <p class="eyebrow">Features</p>
+          <h2>为高频远程开发任务准备</h2>
+        </div>
+        <div class="feature-grid">
+          <article class="feature">
+            <h3>本地与远程终端</h3>
+            <p>启动即进入本地终端；保存服务器后可快速打开 SSH Shell，并同步窗口标题和远程路径状态。</p>
+          </article>
+          <article class="feature">
+            <h3>SFTP 文件面板</h3>
+            <p>浏览远程目录、路径跳转、上传、下载、重命名和删除，不需要切换到独立文件传输工具。</p>
+          </article>
+          <article class="feature">
+            <h3>拖拽上传</h3>
+            <p>从 Finder 拖入文件或目录，Velox 会把它们上传到当前远程 SFTP 目录并显示传输状态。</p>
+          </article>
+          <article class="feature">
+            <h3>服务器目录</h3>
+            <p>按文件夹管理服务器资料，支持复制、编辑、删除和双击连接，适合维护多台主机。</p>
+          </article>
+          <article class="feature">
+            <h3>Keychain 凭据</h3>
+            <p>密码和私钥口令交给 macOS Keychain 存储，服务器资料只记录必要连接信息和私钥路径。</p>
+          </article>
+          <article class="feature">
+            <h3>原生外观设置</h3>
+            <p>支持终端字体、字号、窗口尺寸、亮色/暗色模式和透明度配置，贴合 macOS 桌面环境。</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="workflow" class="section split-section">
+        <div>
+          <p class="eyebrow">Workflow</p>
+          <h2>少一次切换，多一点专注</h2>
+          <p>
+            Velox 的核心设计是把远程登录后的常见动作放在同一个上下文中：
+            连接服务器、查看目录、上传构建产物、下载日志、继续在 Shell 中操作。
+          </p>
+        </div>
+        <ol class="steps">
+          <li>
+            <span>01</span>
+            <strong>保存服务器资料</strong>
+            <p>配置主机、端口、用户名和认证方式。</p>
+          </li>
+          <li>
+            <span>02</span>
+            <strong>双击连接</strong>
+            <p>打开远程 Shell，同时准备 SFTP 会话。</p>
+          </li>
+          <li>
+            <span>03</span>
+            <strong>传输文件</strong>
+            <p>通过文件面板或 Finder 拖拽完成上传下载。</p>
+          </li>
+        </ol>
+      </section>
+
+      <section id="stack" class="section stack-section">
+        <div class="section-heading">
+          <p class="eyebrow">Stack</p>
+          <h2>纯 Swift 的 macOS 工具链</h2>
+        </div>
+        <div class="stack-list" aria-label="Velox technology stack">
+          <span>SwiftUI</span>
+          <span>AppKit</span>
+          <span>SwiftTerm</span>
+          <span>Citadel</span>
+          <span>SwiftNIO</span>
+          <span>Swift Crypto</span>
+          <span>Keychain</span>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div>
+        <strong>Velox</strong>
+        <p>本项目基于 MIT License 开源。</p>
+      </div>
+      <div class="footer-links">
+        <a href="README.md">English README</a>
+        <a href="README_CN.md">中文文档</a>
+        <a href="https://github.com/motoryang/Velox">GitHub</a>
+      </div>
+    </footer>
+  </body>
+</html>
