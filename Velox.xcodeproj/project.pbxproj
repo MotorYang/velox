@@ -267,7 +267,7 @@
 		6E3DFA352FF07592006E25D9 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = logo;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "Velox/Supporting Files/Velox.entitlements";
 				CODE_SIGN_IDENTITY = "Apple Development";
@@ -303,7 +303,7 @@
 		6E3DFA362FF07592006E25D9 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = logo;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "Velox/Supporting Files/Velox.entitlements";
 				CODE_SIGN_IDENTITY = "Apple Development";
