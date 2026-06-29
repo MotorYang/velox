@@ -35,13 +35,26 @@ struct RemoteShellSplitView: View {
                 if showsFilePane {
                     resizeHandle
 
-                    RemoteFilePane(sessionManager: sessionManager, selectedFileID: $selectedFileID)
+                    RemoteFilePane(
+                        sessionManager: sessionManager,
+                        currentRemotePath: sessionManager.currentRemotePath,
+                        remoteFiles: sessionManager.remoteFiles,
+                        isSFTPLoading: sessionManager.isSFTPLoading,
+                        selectedFileID: $selectedFileID
+                    )
+                    .equatable()
                     .frame(width: clampedFilePaneWidth(for: geometry.size.width))
                     .clipped()
                 }
             }
             .onAppear {
                 filePaneWidth = clampedFilePaneWidth(for: geometry.size.width)
+            }
+            .onDisappear {
+                Task { @MainActor in
+                    sessionManager.cancelActiveTransfers()
+                    try? await sessionManager.disconnect()
+                }
             }
             .onChange(of: geometry.size.width) { _, width in
                 filePaneWidth = clampedFilePaneWidth(for: width)
@@ -131,6 +144,7 @@ struct RemoteShellSplitView: View {
         Task { @MainActor in
             do {
                 try await action()
+            } catch is CancellationError {
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -151,13 +165,9 @@ private struct SFTPTitlebarControls: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            if sessionManager.activeTransfer != nil {
-                toolbarButton("arrow.up.arrow.down.circle", "Transfer Progress") {
-                    showsTransferPopover.toggle()
-                }
+            transferStatusButton
                 .popover(isPresented: $showsTransferPopover, arrowEdge: .top) {
                     transferPopover
-                }
             }
 
             toolbarButton("arrow.left", "Parent") {
@@ -192,7 +202,7 @@ private struct SFTPTitlebarControls: View {
             }
             .disabled(isBusy || !showsFilePane)
 
-            toolbarButton(showsFilePane ? "sidebar.right" : "sidebar.left", showsFilePane ? "Hide SFTP" : "Show SFTP") {
+            toolbarButton("sidebar.right", showsFilePane ? "Hide SFTP" : "Show SFTP") {
                 showsFilePane.toggle()
             }
         }
@@ -212,35 +222,143 @@ private struct SFTPTitlebarControls: View {
     }
 
     private var isBusy: Bool {
-        sessionManager.isSFTPLoading || sessionManager.activeTransfer != nil
+        sessionManager.isSFTPLoading
+    }
+
+    private var transferStatusButton: some View {
+        Button {
+            showsTransferPopover.toggle()
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: transferStatusIcon)
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 25, height: 24)
+
+                if !sessionManager.activeTransfers.isEmpty {
+                    Circle()
+                        .fill(transferStatusColor)
+                        .frame(width: 6, height: 6)
+                        .offset(x: -2, y: 3)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(transferStatusColor)
+        .help(transferStatusHelp)
+    }
+
+    private var transferStatusIcon: String {
+        guard !sessionManager.activeTransfers.isEmpty else {
+            return "arrow.up.arrow.down.circle"
+        }
+
+        if sessionManager.activeTransfers.contains(where: { $0.status == .running }) {
+            return "arrow.up.arrow.down.circle.fill"
+        }
+
+        if sessionManager.activeTransfers.contains(where: { $0.status == .paused }) {
+            return "pause.circle.fill"
+        }
+
+        return "checkmark.circle.fill"
+    }
+
+    private var transferStatusColor: Color {
+        guard !sessionManager.activeTransfers.isEmpty else {
+            return Color(nsColor: settings.terminalForegroundColor).opacity(0.52)
+        }
+
+        if sessionManager.activeTransfers.contains(where: { $0.status == .running }) {
+            return .accentColor
+        }
+
+        if sessionManager.activeTransfers.contains(where: { $0.status == .paused }) {
+            return Color(nsColor: settings.terminalForegroundColor).opacity(0.72)
+        }
+
+        return .green
+    }
+
+    private var transferStatusHelp: String {
+        let transfers = sessionManager.activeTransfers
+        guard !transfers.isEmpty else {
+            return "Transfer Progress: idle"
+        }
+
+        let running = transfers.filter { $0.status == .running }.count
+        let paused = transfers.filter { $0.status == .paused }.count
+        let completed = transfers.filter { $0.status == .completed }.count
+        var parts = ["\(transfers.count) task\(transfers.count == 1 ? "" : "s")"]
+        if running > 0 { parts.append("\(running) running") }
+        if paused > 0 { parts.append("\(paused) paused") }
+        if completed > 0 { parts.append("\(completed) completed") }
+        return "Transfer Progress: " + parts.joined(separator: ", ")
     }
 
     private var transferPopover: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let transfer = sessionManager.activeTransfer {
-                HStack(spacing: 8) {
-                    Image(systemName: transfer.kind == .upload ? "square.and.arrow.up" : "square.and.arrow.down")
-                        .frame(width: 18)
-
-                    Text(transfer.statusText)
-                        .font(.system(size: 12, weight: .medium))
-                        .lineLimit(1)
-                }
-
-                ProgressView(value: transfer.fractionCompleted)
-                    .progressViewStyle(.linear)
-
-                Text(transfer.byteText)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(Color(nsColor: settings.terminalForegroundColor).opacity(0.62))
-            } else {
+        VStack(alignment: .leading, spacing: 10) {
+            if sessionManager.activeTransfers.isEmpty {
                 Text("No active transfer")
                     .font(.system(size: 12))
                     .foregroundStyle(Color(nsColor: settings.terminalForegroundColor).opacity(0.7))
+            } else {
+                ForEach(sessionManager.activeTransfers) { transfer in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            Image(systemName: transfer.kind == .upload ? "square.and.arrow.up" : "square.and.arrow.down")
+                                .frame(width: 18)
+
+                            Text(transfer.statusText)
+                                .font(.system(size: 12, weight: .medium))
+                                .lineLimit(1)
+
+                            Spacer(minLength: 0)
+
+                            Button {
+                                switch transfer.status {
+                                case .running:
+                                    sessionManager.pauseTransfer(transfer.id)
+                                case .paused:
+                                    sessionManager.resumeTransfer(transfer.id)
+                                case .completed:
+                                    break
+                                }
+                            } label: {
+                                Image(systemName: transfer.status == .paused ? "play.fill" : "pause.fill")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .frame(width: 20, height: 18)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(transfer.status == .completed)
+                            .help(transfer.status == .paused ? "Resume" : "Pause")
+
+                            Button {
+                                sessionManager.cancelTransfer(transfer.id)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .frame(width: 20, height: 18)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Cancel")
+                        }
+
+                        ProgressView(value: transfer.fractionCompleted)
+                            .progressViewStyle(.linear)
+
+                        HStack(spacing: 8) {
+                            Text(transfer.byteText)
+                                .font(.system(size: 10, design: .monospaced))
+                            Text(transfer.status.rawValue.capitalized)
+                                .font(.system(size: 10))
+                        }
+                        .foregroundStyle(Color(nsColor: settings.terminalForegroundColor).opacity(0.62))
+                    }
+                }
             }
         }
         .padding(12)
-        .frame(width: 260)
+        .frame(width: 300)
         .background(Color(nsColor: settings.terminalSurfaceBackgroundColor))
         .foregroundStyle(Color(nsColor: settings.terminalForegroundColor))
     }
@@ -269,7 +387,12 @@ private struct SFTPTitlebarControls: View {
         }
 
         runSFTPAction {
-            try await sessionManager.uploadItems(localURLs: panel.urls)
+            let urls = await SFTPTransferConflictResolver.uploadableURLs(from: panel.urls, sessionManager: sessionManager)
+            guard !urls.isEmpty else {
+                return
+            }
+
+            try await sessionManager.uploadItems(localURLs: urls)
         }
     }
 
@@ -296,7 +419,11 @@ private struct SFTPTitlebarControls: View {
         }
 
         runSFTPAction {
-            try await sessionManager.downloadFile(file, to: url)
+            guard SFTPTransferConflictResolver.shouldDownload(file, to: url) else {
+                return
+            }
+
+            try await sessionManager.downloadFile(file, to: url, overwrite: true)
         }
     }
 

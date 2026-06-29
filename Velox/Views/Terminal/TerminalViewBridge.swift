@@ -10,6 +10,7 @@ struct TerminalViewBridge: NSViewRepresentable {
 
     final class Coordinator: NSObject, TerminalViewDelegate {
         let sessionManager: TerminalSessionManager
+        var didRequestInitialFocus = false
 
         @MainActor
         init(_ parent: TerminalViewBridge) {
@@ -69,7 +70,7 @@ struct TerminalViewBridge: NSViewRepresentable {
         )
         view.feed(text: "\(sessionManager.statusMessage)\r\n")
 
-        startBridge(afterViewUpdate: view)
+        startBridge(afterViewUpdate: view, context: context)
 
         return view
     }
@@ -82,7 +83,7 @@ struct TerminalViewBridge: NSViewRepresentable {
             serverStore: serverStore,
             connectProfile: connectProfile
         )
-        startBridge(afterViewUpdate: nsView)
+        startBridge(afterViewUpdate: nsView, context: context)
         nsView.needsDisplay = true
     }
 
@@ -95,14 +96,18 @@ struct TerminalViewBridge: NSViewRepresentable {
         view.font = settings.terminalFont
     }
 
-    private func startBridge(afterViewUpdate view: TerminalView) {
+    private func startBridge(afterViewUpdate view: TerminalView, context: Context) {
         DispatchQueue.main.async { [sessionManager] in
             let terminal = view.getTerminal()
             sessionManager.startTerminalBridge(initialCols: terminal.cols, initialRows: terminal.rows) { bytes in
                 view.feed(byteArray: bytes)
             }
-            view.window?.makeFirstResponder(view)
-            KeyboardInputSourceSwitcher.switchToEnglish()
+
+            if !context.coordinator.didRequestInitialFocus {
+                context.coordinator.didRequestInitialFocus = true
+                view.window?.makeFirstResponder(view)
+                KeyboardInputSourceSwitcher.switchToEnglish()
+            }
         }
     }
 }

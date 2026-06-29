@@ -15,7 +15,7 @@ final class TerminalSessionManager: ObservableObject {
     @Published private(set) var remoteFiles: [RemoteFile] = []
     @Published private(set) var isSFTPLoading = false
     @Published private(set) var sftpStatusMessage: String?
-    @Published private(set) var activeTransfer: SFTPTransferProgress?
+    @Published private(set) var activeTransfers: [SFTPTransferProgress] = []
     @Published var uploadProgress = 0.0
     @Published var showUploadIndicator = false
     @Published var statusMessage = "Connecting to SSH..."
@@ -28,10 +28,16 @@ final class TerminalSessionManager: ObservableObject {
     
     private var client: SSHClient?
     private var sftp: SFTPClient?
+    private var currentConnection: SSHConnectionConfiguration?
+    private var reconnectTask: Task<Void, Never>?
+    private var isIntentionallyDisconnecting = false
     private var shellTask: Task<Void, Never>?
     private var shellSessionID: UUID?
     private var inputContinuation: AsyncStream<TerminalInputEvent>.Continuation?
-    private var transferProgressState: SFTPTransferProgress?
+    private var transferProgressStates: [UUID: SFTPTransferProgress] = [:]
+    private var pausedTransferIDs = Set<UUID>()
+    private var canceledTransferIDs = Set<UUID>()
+    private var transferCancellationToken = UUID()
     private let transferChunkSize = 256 * 1024
     private let progressUpdateInterval: TimeInterval = 1.0 / 30.0
     
@@ -42,14 +48,21 @@ final class TerminalSessionManager: ObservableObject {
     
     func connect(host: String, port: Int = 22, user: String, auth: SSHAuthentication) async throws {
         try await disconnect()
-        
+
+        let configuration = SSHConnectionConfiguration(host: host, port: port, user: user, auth: auth)
+        currentConnection = configuration
+        isIntentionallyDisconnecting = false
+        try await establishConnection(configuration)
+    }
+
+    private func establishConnection(_ configuration: SSHConnectionConfiguration) async throws {
         didShellExit = false
-        statusMessage = "Connecting to \(user)@\(host):\(port)..."
+        statusMessage = "Connecting to \(configuration.user)@\(configuration.host):\(configuration.port)..."
         
-        let authenticationMethod = try auth.makeCitadelMethod(username: user)
+        let authenticationMethod = try configuration.auth.makeCitadelMethod(username: configuration.user)
         let sshClient = try await SSHClient.connect(
-            host: host,
-            port: port,
+            host: configuration.host,
+            port: configuration.port,
             authenticationMethod: authenticationMethod,
             hostKeyValidator: .acceptAnything(),
             reconnect: .never
@@ -61,19 +74,24 @@ final class TerminalSessionManager: ObservableObject {
                 manager.isConnected = false
                 manager.isShellActive = false
                 manager.statusMessage = "SSH connection disconnected"
+                manager.scheduleReconnectIfNeeded()
             }
         }
         
         self.client = sshClient
         self.sftp = try await sshClient.openSFTP()
         self.isConnected = true
-        self.remoteTitlePrefix = "\(user)@\(host)"
+        self.remoteTitlePrefix = "\(configuration.user)@\(configuration.host)"
         self.statusMessage = "SSH connected"
         
         try await fetchRemoteFiles(at: ".")
     }
     
     func disconnect() async throws {
+        isIntentionallyDisconnecting = true
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        cancelActiveTransfers()
         shellTask?.cancel()
         shellTask = nil
         shellSessionID = nil
@@ -98,9 +116,51 @@ final class TerminalSessionManager: ObservableObject {
         remoteTitlePrefix = nil
         isSFTPLoading = false
         sftpStatusMessage = nil
-        activeTransfer = nil
-        transferProgressState = nil
+        activeTransfers = []
+        transferProgressStates = [:]
+        currentConnection = nil
         statusMessage = "SSH connection closed"
+    }
+
+    func cancelActiveTransfers() {
+        transferCancellationToken = UUID()
+        transferProgressStates.removeAll()
+        pausedTransferIDs.removeAll()
+        canceledTransferIDs.removeAll()
+        activeTransfers = []
+        showUploadIndicator = false
+        uploadProgress = 0
+    }
+
+    func pauseTransfer(_ id: UUID) {
+        guard var progress = transferProgressStates[id], progress.status == .running else {
+            return
+        }
+
+        pausedTransferIDs.insert(id)
+        progress.status = .paused
+        progress.updatedAt = Date()
+        transferProgressStates[id] = progress
+        publishTransferStates()
+    }
+
+    func resumeTransfer(_ id: UUID) {
+        guard var progress = transferProgressStates[id], progress.status == .paused else {
+            return
+        }
+
+        pausedTransferIDs.remove(id)
+        progress.status = .running
+        progress.updatedAt = Date()
+        transferProgressStates[id] = progress
+        publishTransferStates()
+    }
+
+    func cancelTransfer(_ id: UUID) {
+        canceledTransferIDs.insert(id)
+        pausedTransferIDs.remove(id)
+        transferProgressStates.removeValue(forKey: id)
+        publishTransferStates()
     }
     
     func fetchRemoteFiles(at path: String) async throws {
@@ -142,51 +202,86 @@ final class TerminalSessionManager: ObservableObject {
     }
 
     func uploadItems(localURLs: [URL]) async throws {
-        guard let sftp else {
-            return
-        }
-
         let urls = localURLs.filter { !$0.lastPathComponent.isEmpty }
         guard !urls.isEmpty else {
             return
         }
 
+        let destinationPath = currentRemotePath
+        let cancellationToken = transferCancellationToken
         let totalBytes = try await Task.detached {
             try Self.localTransferSize(for: urls)
         }.value
 
-        beginTransfer(.upload, itemName: Self.transferTitle(for: urls), totalBytes: totalBytes)
+        let transferID = beginTransfer(.upload, itemName: Self.transferTitle(for: urls), totalBytes: totalBytes)
 
         do {
-            for url in urls {
-                try await uploadItem(localURL: url, to: remotePath(appending: url.lastPathComponent), using: sftp)
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for url in urls {
+                    group.addTask { [self, destinationPath, transferID, url] in
+                        try await self.uploadItem(
+                            localURL: url,
+                            to: self.joinRemotePath(destinationPath, url.lastPathComponent),
+                            transferID: transferID,
+                            cancellationToken: cancellationToken
+                        )
+                    }
+                }
+
+                try await group.waitForAll()
             }
 
-            completeTransfer(message: "Uploaded \(Self.transferTitle(for: urls))")
+            completeTransfer(transferID, message: "Uploaded \(Self.transferTitle(for: urls))")
             try await fetchRemoteFiles(at: currentRemotePath)
-            scheduleTransferDismissal()
+            scheduleTransferDismissal(transferID)
+        } catch is CancellationError {
+            removeTransfer(transferID)
+            throw CancellationError()
         } catch {
-            failTransfer(error)
+            failTransfer(transferID, error)
             throw error
         }
     }
 
     func downloadFile(_ remoteFile: RemoteFile, to localURL: URL) async throws {
-        guard let sftp else {
-            return
+        try await downloadFile(remoteFile, to: localURL, overwrite: true)
+    }
+
+    func downloadFile(_ remoteFile: RemoteFile, to localURL: URL, overwrite: Bool) async throws {
+        let destinationURL = remoteFile.isDirectory ? localURL.appendingPathComponent(remoteFile.name, isDirectory: true) : localURL
+        if !overwrite, FileManager.default.fileExists(atPath: destinationURL.path) {
+            throw SFTPActionError.itemAlreadyExists(destinationURL.lastPathComponent)
         }
 
-        let destinationURL = remoteFile.isDirectory ? localURL.appendingPathComponent(remoteFile.name, isDirectory: true) : localURL
+        let sftp = try await waitForActiveSFTP(transferID: nil, cancellationToken: transferCancellationToken)
         let totalBytes = try await remoteTransferSize(remoteFile, using: sftp)
-        beginTransfer(.download, itemName: remoteFile.name, totalBytes: totalBytes)
+        let transferID = beginTransfer(.download, itemName: remoteFile.name, totalBytes: totalBytes)
+        let cancellationToken = transferCancellationToken
         
         do {
-            try await downloadItem(remoteFile, to: destinationURL, using: sftp)
-            completeTransfer(message: "Downloaded \(remoteFile.name)")
-            scheduleTransferDismissal()
+            try await downloadItem(remoteFile, to: destinationURL, transferID: transferID, cancellationToken: cancellationToken)
+            completeTransfer(transferID, message: "Downloaded \(remoteFile.name)")
+            scheduleTransferDismissal(transferID)
+        } catch is CancellationError {
+            removeTransfer(transferID)
+            throw CancellationError()
         } catch {
-            failTransfer(error)
+            failTransfer(transferID, error)
             throw error
+        }
+    }
+
+    func remoteItemExists(named name: String) async -> Bool {
+        guard !name.isEmpty else {
+            return false
+        }
+
+        do {
+            let sftp = try await waitForActiveSFTP(transferID: nil, cancellationToken: transferCancellationToken)
+            _ = try await sftp.getAttributes(at: remotePath(appending: name))
+            return true
+        } catch {
+            return false
         }
     }
 
@@ -365,7 +460,8 @@ final class TerminalSessionManager: ObservableObject {
         return "\(prefix)/\(fileName)"
     }
 
-    private func uploadItem(localURL: URL, to remotePath: String, using sftp: SFTPClient) async throws {
+    private func uploadItem(localURL: URL, to remotePath: String, transferID: UUID, cancellationToken: UUID) async throws {
+        _ = try await waitForActiveSFTP(transferID: transferID, cancellationToken: cancellationToken)
         let shouldStopAccessing = localURL.startAccessingSecurityScopedResource()
         defer {
             if shouldStopAccessing {
@@ -375,6 +471,7 @@ final class TerminalSessionManager: ObservableObject {
 
         let resourceValues = try localURL.resourceValues(forKeys: [.isDirectoryKey])
         if resourceValues.isDirectory == true {
+            let sftp = try await waitForActiveSFTP(transferID: transferID, cancellationToken: cancellationToken)
             try? await sftp.createDirectory(atPath: remotePath, attributes: directoryAttributes)
             let children = try FileManager.default.contentsOfDirectory(
                 at: localURL,
@@ -383,68 +480,94 @@ final class TerminalSessionManager: ObservableObject {
             )
 
             for child in children {
-                try await uploadItem(localURL: child, to: joinRemotePath(remotePath, child.lastPathComponent), using: sftp)
+                try await uploadItem(localURL: child, to: joinRemotePath(remotePath, child.lastPathComponent), transferID: transferID, cancellationToken: cancellationToken)
             }
         } else {
             sftpStatusMessage = "Uploading \(localURL.lastPathComponent)..."
-            try await uploadFileContents(localURL: localURL, to: remotePath, using: sftp)
+            try await uploadFileContents(localURL: localURL, to: remotePath, transferID: transferID, cancellationToken: cancellationToken)
         }
     }
 
-    private func uploadFileContents(localURL: URL, to remotePath: String, using sftp: SFTPClient) async throws {
-        try await sftp.withFile(filePath: remotePath, flags: [.write, .create, .truncate]) { [transferChunkSize] file in
-            let handle = try FileHandle(forReadingFrom: localURL)
-            defer {
-                try? handle.close()
+    private func uploadFileContents(localURL: URL, to remotePath: String, transferID: UUID, cancellationToken: UUID) async throws {
+        let handle = try FileHandle(forReadingFrom: localURL)
+        defer {
+            try? handle.close()
+        }
+
+        var offset: UInt64 = 0
+        while true {
+            try Task.checkCancellation()
+            _ = try await waitForActiveSFTP(transferID: transferID, cancellationToken: cancellationToken)
+            try handle.seek(toOffset: offset)
+            let data = try handle.read(upToCount: transferChunkSize) ?? Data()
+            guard !data.isEmpty else {
+                break
             }
 
-            var offset: UInt64 = 0
-            while true {
-                try Task.checkCancellation()
-                let data = try handle.read(upToCount: transferChunkSize) ?? Data()
-                guard !data.isEmpty else {
-                    break
+            do {
+                let sftp = try await waitForActiveSFTP(transferID: transferID, cancellationToken: cancellationToken)
+                let writeOffset = offset
+                let flags: SFTPOpenFileFlags = writeOffset == 0 ? [.write, .create, .truncate] : [.write, .create]
+                try checkTransferCanProgress(transferID: transferID, cancellationToken: cancellationToken)
+                try await sftp.withFile(filePath: remotePath, flags: flags) { file in
+                    try await file.write(ByteBuffer(data: data), at: writeOffset)
                 }
-
-                try await file.write(ByteBuffer(data: data), at: offset)
+                try checkTransferCanProgress(transferID: transferID, cancellationToken: cancellationToken)
                 offset += UInt64(data.count)
-                await self.advanceTransfer(by: UInt64(data.count), itemName: localURL.lastPathComponent)
+                self.advanceTransfer(transferID, by: UInt64(data.count), itemName: localURL.lastPathComponent)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                markDisconnectedForTransferRetry(error)
             }
         }
     }
 
-    private func downloadItem(_ remoteFile: RemoteFile, to localURL: URL, using sftp: SFTPClient) async throws {
+    private func downloadItem(_ remoteFile: RemoteFile, to localURL: URL, transferID: UUID, cancellationToken: UUID) async throws {
+        _ = try await waitForActiveSFTP(transferID: transferID, cancellationToken: cancellationToken)
         if remoteFile.isDirectory {
             try FileManager.default.createDirectory(at: localURL, withIntermediateDirectories: true, attributes: nil)
+            let sftp = try await waitForActiveSFTP(transferID: transferID, cancellationToken: cancellationToken)
             let children = try await remoteDirectoryEntries(at: remoteFile.path, using: sftp)
             for child in children {
-                try await downloadItem(child, to: localURL.appendingPathComponent(child.name, isDirectory: child.isDirectory), using: sftp)
+                try await downloadItem(child, to: localURL.appendingPathComponent(child.name, isDirectory: child.isDirectory), transferID: transferID, cancellationToken: cancellationToken)
             }
         } else {
             sftpStatusMessage = "Downloading \(remoteFile.name)..."
             try FileManager.default.createDirectory(at: localURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
-            try await downloadFileContents(remoteFile, to: localURL, using: sftp)
+            try await downloadFileContents(remoteFile, to: localURL, transferID: transferID, cancellationToken: cancellationToken)
         }
     }
 
-    private func downloadFileContents(_ remoteFile: RemoteFile, to localURL: URL, using sftp: SFTPClient) async throws {
-        try await sftp.withFile(filePath: remoteFile.path, flags: .read) { [transferChunkSize] file in
-            let handle = try FileHandle(forWritingTo: Self.prepareDownloadFile(at: localURL))
-            defer {
-                try? handle.close()
-            }
+    private func downloadFileContents(_ remoteFile: RemoteFile, to localURL: URL, transferID: UUID, cancellationToken: UUID) async throws {
+        let handle = try FileHandle(forWritingTo: Self.prepareDownloadFile(at: localURL))
+        defer {
+            try? handle.close()
+        }
 
-            var offset: UInt64 = 0
-            while true {
-                try Task.checkCancellation()
-                var buffer = try await file.read(from: offset, length: UInt32(transferChunkSize))
-                guard let data = buffer.readData(length: buffer.readableBytes), !data.isEmpty else {
-                    break
+        var offset: UInt64 = 0
+        while true {
+            try Task.checkCancellation()
+            _ = try await waitForActiveSFTP(transferID: transferID, cancellationToken: cancellationToken)
+            do {
+                let sftp = try await waitForActiveSFTP(transferID: transferID, cancellationToken: cancellationToken)
+                let readOffset = offset
+                try checkTransferCanProgress(transferID: transferID, cancellationToken: cancellationToken)
+                let data: Data = try await sftp.withFile(filePath: remoteFile.path, flags: .read) { [transferChunkSize] file in
+                    var buffer = try await file.read(from: readOffset, length: UInt32(transferChunkSize))
+                    return buffer.readData(length: buffer.readableBytes) ?? Data()
                 }
+                guard !data.isEmpty else { break }
+                try checkTransferCanProgress(transferID: transferID, cancellationToken: cancellationToken)
 
+                try handle.seek(toOffset: readOffset)
                 try handle.write(contentsOf: data)
                 offset += UInt64(data.count)
-                await self.advanceTransfer(by: UInt64(data.count), itemName: remoteFile.name)
+                self.advanceTransfer(transferID, by: UInt64(data.count), itemName: remoteFile.name)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                markDisconnectedForTransferRetry(error)
             }
         }
     }
@@ -488,21 +611,28 @@ final class TerminalSessionManager: ObservableObject {
         return attributes
     }
 
-    private func beginTransfer(_ kind: SFTPTransferKind, itemName: String, totalBytes: UInt64) {
-        let progress = SFTPTransferProgress(kind: kind, itemName: itemName, completedBytes: 0, totalBytes: totalBytes, updatedAt: Date())
-        transferProgressState = progress
-        activeTransfer = progress
+    private func beginTransfer(_ kind: SFTPTransferKind, itemName: String, totalBytes: UInt64) -> UUID {
+        let id = UUID()
+        let progress = SFTPTransferProgress(id: id, kind: kind, itemName: itemName, status: .running, completedBytes: 0, totalBytes: totalBytes, updatedAt: Date())
+        transferProgressStates[id] = progress
+        publishTransferStates()
         sftpStatusMessage = progress.statusText
         uploadProgress = 0
-        showUploadIndicator = kind == .upload
+        showUploadIndicator = activeTransfers.contains { $0.kind == .upload }
+        return id
     }
 
-    private func advanceTransfer(by byteCount: UInt64, itemName: String) {
-        guard var progress = transferProgressState else {
+    private func advanceTransfer(_ id: UUID, by byteCount: UInt64, itemName: String) {
+        guard var progress = transferProgressStates[id] else {
+            return
+        }
+
+        guard !pausedTransferIDs.contains(id), !canceledTransferIDs.contains(id) else {
             return
         }
 
         progress.itemName = itemName
+        progress.status = .running
         progress.completedBytes = min(progress.completedBytes + byteCount, progress.totalBytes)
 
         let now = Date()
@@ -510,44 +640,146 @@ final class TerminalSessionManager: ObservableObject {
             || progress.completedBytes == progress.totalBytes
             || now.timeIntervalSince(progress.updatedAt) >= progressUpdateInterval
 
-        transferProgressState = progress
+        transferProgressStates[id] = progress
 
         guard shouldPublish else {
             return
         }
 
         progress.updatedAt = now
-        activeTransfer = progress
+        transferProgressStates[id] = progress
+        publishTransferStates()
         uploadProgress = progress.fractionCompleted
         sftpStatusMessage = progress.statusText
     }
 
-    private func completeTransfer(message: String) {
-        if var progress = transferProgressState {
+    private func completeTransfer(_ id: UUID, message: String) {
+        if var progress = transferProgressStates[id] {
             progress.completedBytes = progress.totalBytes
+            progress.status = .completed
             progress.updatedAt = Date()
-            transferProgressState = progress
-            activeTransfer = progress
+            transferProgressStates[id] = progress
+            publishTransferStates()
             uploadProgress = 1
         }
         sftpStatusMessage = message
     }
 
-    private func failTransfer(_ error: Error) {
+    private func failTransfer(_ id: UUID, _ error: Error) {
         sftpStatusMessage = error.localizedDescription
-        showUploadIndicator = false
+        transferProgressStates.removeValue(forKey: id)
+        publishTransferStates()
         uploadProgress = 0
-        transferProgressState = nil
-        activeTransfer = nil
     }
 
-    private func scheduleTransferDismissal() {
+    private func removeTransfer(_ id: UUID) {
+        transferProgressStates.removeValue(forKey: id)
+        publishTransferStates()
+        uploadProgress = 0
+    }
+
+    private func scheduleTransferDismissal(_ id: UUID) {
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(1.2))
-            self.showUploadIndicator = false
+            self.transferProgressStates.removeValue(forKey: id)
+            self.publishTransferStates()
             self.uploadProgress = 0
-            self.transferProgressState = nil
-            self.activeTransfer = nil
+        }
+    }
+
+    private func publishTransferStates() {
+        activeTransfers = transferProgressStates.values.sorted {
+            if $0.kind != $1.kind {
+                return $0.kind.rawValue < $1.kind.rawValue
+            }
+
+            return $0.itemName.localizedStandardCompare($1.itemName) == .orderedAscending
+        }
+        showUploadIndicator = activeTransfers.contains { $0.kind == .upload }
+    }
+
+    private func checkTransferActive(_ token: UUID) throws {
+        guard isConnected, transferCancellationToken == token else {
+            throw CancellationError()
+        }
+    }
+
+    private func waitForActiveSFTP(transferID: UUID?, cancellationToken: UUID) async throws -> SFTPClient {
+        while true {
+            try Task.checkCancellation()
+            guard transferCancellationToken == cancellationToken else {
+                throw CancellationError()
+            }
+
+            if let transferID {
+                try checkTransferCanProgress(transferID: transferID, cancellationToken: cancellationToken)
+
+                if pausedTransferIDs.contains(transferID) {
+                    try await Task.sleep(for: .milliseconds(120))
+                    continue
+                }
+            }
+
+            if isConnected, let sftp {
+                return sftp
+            }
+
+            scheduleReconnectIfNeeded()
+            try await Task.sleep(for: .milliseconds(250))
+        }
+    }
+
+    private func checkTransferCanProgress(transferID: UUID, cancellationToken: UUID) throws {
+        guard transferCancellationToken == cancellationToken,
+              !canceledTransferIDs.contains(transferID),
+              transferProgressStates[transferID] != nil
+        else {
+            throw CancellationError()
+        }
+    }
+
+    private func markDisconnectedForTransferRetry(_ error: Error) {
+        isConnected = false
+        isShellActive = false
+        sftpStatusMessage = "Connection interrupted. Reconnecting..."
+        statusMessage = "SSH connection interrupted: \(error.localizedDescription)"
+        scheduleReconnectIfNeeded()
+    }
+
+    private func scheduleReconnectIfNeeded() {
+        guard !isIntentionallyDisconnecting, currentConnection != nil else {
+            return
+        }
+
+        guard reconnectTask == nil else {
+            return
+        }
+
+        reconnectTask = Task { @MainActor in
+            let delays: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8)]
+            var attempt = 0
+
+            while !Task.isCancelled, !isIntentionallyDisconnecting, !isConnected {
+                guard let configuration = currentConnection else { break }
+                let delay = delays[min(attempt, delays.count - 1)]
+                statusMessage = "Reconnecting SSH..."
+                try? await Task.sleep(for: delay)
+
+                do {
+                    try? await sftp?.close()
+                    try? await client?.close()
+                    sftp = nil
+                    client = nil
+                    try await establishConnection(configuration)
+                    reconnectTask = nil
+                    return
+                } catch {
+                    attempt += 1
+                    statusMessage = "Reconnect failed: \(error.localizedDescription)"
+                }
+            }
+
+            reconnectTask = nil
         }
     }
 
@@ -626,6 +858,7 @@ final class TerminalSessionManager: ObservableObject {
 enum SFTPActionError: LocalizedError {
     case invalidName
     case invalidPath
+    case itemAlreadyExists(String)
 
     var errorDescription: String? {
         switch self {
@@ -633,8 +866,17 @@ enum SFTPActionError: LocalizedError {
             return "Name cannot be empty or contain '/'."
         case .invalidPath:
             return "Path cannot be empty."
+        case .itemAlreadyExists(let name):
+            return "\(name) already exists."
         }
     }
+}
+
+private struct SSHConnectionConfiguration {
+    let host: String
+    let port: Int
+    let user: String
+    let auth: SSHAuthentication
 }
 
 enum SFTPTransferKind: String, Sendable {
@@ -642,9 +884,17 @@ enum SFTPTransferKind: String, Sendable {
     case download = "Downloading"
 }
 
-struct SFTPTransferProgress: Equatable, Sendable {
+enum SFTPTransferStatus: String, Sendable {
+    case running
+    case paused
+    case completed
+}
+
+struct SFTPTransferProgress: Identifiable, Equatable, Sendable {
+    let id: UUID
     let kind: SFTPTransferKind
     var itemName: String
+    var status: SFTPTransferStatus
     var completedBytes: UInt64
     let totalBytes: UInt64
     var updatedAt: Date
