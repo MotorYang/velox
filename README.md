@@ -110,9 +110,25 @@ After connecting over SSH, Velox opens the remote file pane:
 
 Pushing code to the `production` branch triggers the `Build and Release` GitHub Actions workflow. The workflow builds the macOS app in Release configuration, packages `Velox.app` as a zip, and publishes it to [GitHub Releases](https://github.com/MotorYang/velox/releases).
 
-The generated artifact is currently an unsigned macOS app bundle. For public distribution outside development use, add Apple Developer signing and notarization secrets before publishing a stable release.
+Without an Apple Developer Program account, the generated artifact is ad-hoc signed but not notarized. macOS Gatekeeper will still show an "Apple cannot verify this app" warning on first launch.
+
+For ad-hoc builds, open the app with one of these methods:
+
+1. Right-click `Velox.app`, choose Open, then confirm Open.
+2. Or open System Settings > Privacy & Security, then choose Open Anyway after the first blocked launch.
+3. For local testing only, remove the quarantine flag with `xattr -dr com.apple.quarantine /Applications/Velox.app`.
 
 If the release runner is self-hosted and needs the local proxy at `127.0.0.1:10808`, set the repository variable `USE_LOCAL_PROXY` to `true`. Do not enable it on GitHub-hosted runners unless that proxy exists inside the runner environment.
+
+To publish a Gatekeeper-friendly macOS release, enroll in the Apple Developer Program and configure these GitHub repository secrets:
+
+- `APPLE_CERTIFICATE_BASE64`: base64-encoded Developer ID Application `.p12` certificate.
+- `APPLE_CERTIFICATE_PASSWORD`: password for the `.p12` certificate.
+- `APPLE_ID`: Apple ID email used for notarization.
+- `APPLE_APP_SPECIFIC_PASSWORD`: app-specific password for the Apple ID.
+- `APPLE_TEAM_ID`: Apple Developer Team ID.
+
+When all notarization secrets are present, the release workflow Developer ID signs `Velox.app`, submits it to Apple notarization, staples the ticket, verifies it with `spctl`, and publishes a `notarized` zip asset. Without those secrets, the workflow falls back to an `adhoc` zip asset.
 
 ## Project Structure
 

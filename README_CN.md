@@ -110,9 +110,25 @@ xcodebuild -project Velox.xcodeproj -scheme Velox -configuration Debug build
 
 推送代码到 `production` 分支会触发 `Build and Release` GitHub Actions workflow。该流程会使用 Release 配置构建 macOS App，将 `Velox.app` 打包为 zip，并发布到 [GitHub Releases](https://github.com/MotorYang/velox/releases)。
 
-当前产物是未签名的 macOS app bundle。若要面向公开用户稳定分发，建议后续补充 Apple Developer 签名与 notarization 配置。
+如果没有 Apple Developer Program 账号，当前产物可以做到 ad-hoc 签名，但不能 notarize。macOS Gatekeeper 首次启动时仍会显示“Apple 无法验证此 App”的提示。
+
+ad-hoc 版本可以通过以下方式打开：
+
+1. 右键点击 `Velox.app`，选择“打开”，再确认“打开”。
+2. 或首次被拦截后，到“系统设置 > 隐私与安全性”里选择“仍要打开”。
+3. 仅本地测试时，也可以执行 `xattr -dr com.apple.quarantine /Applications/Velox.app` 移除 quarantine 标记。
 
 如果发布 runner 是自托管环境，并且需要使用 `127.0.0.1:10808` 本地代理，请把仓库变量 `USE_LOCAL_PROXY` 设置为 `true`。如果使用 GitHub-hosted runner，不要启用该变量，除非代理确实存在于 runner 环境内部。
+
+要发布不会被 Gatekeeper 提示“无法验证开发者”的 macOS 产物，需要加入 Apple Developer Program，并配置这些 GitHub 仓库 Secrets：
+
+- `APPLE_CERTIFICATE_BASE64`：Developer ID Application `.p12` 证书的 base64 内容。
+- `APPLE_CERTIFICATE_PASSWORD`：`.p12` 证书密码。
+- `APPLE_ID`：用于 notarization 的 Apple ID 邮箱。
+- `APPLE_APP_SPECIFIC_PASSWORD`：Apple ID 的 app-specific password。
+- `APPLE_TEAM_ID`：Apple Developer Team ID。
+
+当上述 notarization secrets 全部存在时，发布 workflow 会使用 Developer ID 签名 `Velox.app`，提交 Apple notarization，staple 公证票据，用 `spctl` 校验，并发布 `notarized` zip 产物。缺少这些 secrets 时，workflow 会回退为 `adhoc` zip 产物。
 
 ## 项目结构
 

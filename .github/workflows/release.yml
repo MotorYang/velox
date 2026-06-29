@@ -45,6 +45,27 @@ jobs:
           echo "build_number=${BUILD_NUMBER}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
+      - name: Check notarization secrets
+        id: signing
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [[ -n "$APPLE_CERTIFICATE_BASE64" \
+            && -n "$APPLE_CERTIFICATE_PASSWORD" \
+            && -n "$APPLE_ID" \
+            && -n "$APPLE_APP_SPECIFIC_PASSWORD" \
+            && -n "$APPLE_TEAM_ID" ]]; then
+            echo "notarize=true" >> "$GITHUB_OUTPUT"
+            echo "signing_label=notarized" >> "$GITHUB_OUTPUT"
+          else
+            echo "notarize=false" >> "$GITHUB_OUTPUT"
+            echo "signing_label=adhoc" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build release app
         run: |
           xcodebuild build \
@@ -59,7 +80,61 @@ jobs:
         run: |
           test -f "build/DerivedData/Build/Products/Release/Velox.app/Contents/Resources/logo.icns"
 
+      - name: Import Developer ID certificate
+        if: ${{ steps.signing.outputs.notarize == 'true' }}
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer-id.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+
+          echo -n "$APPLE_CERTIFICATE_BASE64" | base64 --decode -o "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          SIGN_IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' | head -n 1)"
+          if [[ -z "$SIGN_IDENTITY" ]]; then
+            echo "Developer ID Application identity was not found in the imported certificate."
+            exit 1
+          fi
+
+          echo "SIGN_IDENTITY=$SIGN_IDENTITY" >> "$GITHUB_ENV"
+
+      - name: Developer ID sign app
+        if: ${{ steps.signing.outputs.notarize == 'true' }}
+        run: |
+          codesign --force --deep --options runtime --timestamp --sign "$SIGN_IDENTITY" \
+            "build/DerivedData/Build/Products/Release/Velox.app"
+          codesign --verify --deep --strict --verbose=2 \
+            "build/DerivedData/Build/Products/Release/Velox.app"
+
+      - name: Notarize and staple app
+        if: ${{ steps.signing.outputs.notarize == 'true' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent \
+            "build/DerivedData/Build/Products/Release/Velox.app" \
+            "dist/Velox-notary.zip"
+          xcrun notarytool submit "dist/Velox-notary.zip" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "build/DerivedData/Build/Products/Release/Velox.app"
+          spctl -a -vvv -t exec "build/DerivedData/Build/Products/Release/Velox.app"
+
       - name: Ad-hoc sign app
+        if: ${{ steps.signing.outputs.notarize != 'true' }}
         run: |
           codesign --force --deep --sign - "build/DerivedData/Build/Products/Release/Velox.app"
           codesign --verify --deep --strict --verbose=2 "build/DerivedData/Build/Products/Release/Velox.app"
@@ -67,9 +142,10 @@ jobs:
       - name: Package app
         run: |
           mkdir -p dist
+          rm -f dist/Velox-notary.zip
           ditto -c -k --sequesterRsrc --keepParent \
             "build/DerivedData/Build/Products/Release/Velox.app" \
-            "dist/Velox-${{ steps.version.outputs.app_version }}-build.${{ steps.version.outputs.build_number }}.zip"
+            "dist/Velox-${{ steps.version.outputs.app_version }}-build.${{ steps.version.outputs.build_number }}-${{ steps.signing.outputs.signing_label }}.zip"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
@@ -82,7 +158,14 @@ jobs:
             - App version: `${{ steps.version.outputs.app_version }}`
             - Build: `${{ steps.version.outputs.build_number }}`
             - Commit: `${{ github.sha }}`
+            - Signing: `${{ steps.signing.outputs.signing_label }}`
 
-            This asset is an ad-hoc signed macOS app bundle packaged as a zip.
-            It is not notarized yet, so macOS may still show an unidentified developer warning.
+            If Apple Developer notarization secrets are configured, this asset is Developer ID signed, notarized, and stapled.
+            Otherwise it is an ad-hoc signed macOS app bundle.
+
+            For the ad-hoc build, macOS Gatekeeper will still show an "Apple cannot verify this app" warning on first launch because the app is not notarized. Open it with one of these methods:
+
+            1. Right-click `Velox.app`, choose Open, then confirm Open.
+            2. Or open System Settings > Privacy & Security, then choose Open Anyway after the first blocked launch.
+            3. For local testing only, you can remove the quarantine flag with `xattr -dr com.apple.quarantine /Applications/Velox.app`.
           files: dist/*.zip
