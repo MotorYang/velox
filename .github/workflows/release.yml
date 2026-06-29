@@ -55,6 +55,15 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO
 
+      - name: Verify app icon
+        run: |
+          test -f "build/DerivedData/Build/Products/Release/Velox.app/Contents/Resources/logo.icns"
+
+      - name: Ad-hoc sign app
+        run: |
+          codesign --force --deep --sign - "build/DerivedData/Build/Products/Release/Velox.app"
+          codesign --verify --deep --strict --verbose=2 "build/DerivedData/Build/Products/Release/Velox.app"
+
       - name: Package app
         run: |
           mkdir -p dist
@@ -74,5 +83,6 @@ jobs:
             - Build: `${{ steps.version.outputs.build_number }}`
             - Commit: `${{ github.sha }}`
 
-            This asset is an unsigned macOS app bundle packaged as a zip.
+            This asset is an ad-hoc signed macOS app bundle packaged as a zip.
+            It is not notarized yet, so macOS may still show an unidentified developer warning.
           files: dist/*.zip
