@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Velox/Supporting%20Files/logo.icon/Assets/app_logo.png" alt="Velox Logo" width="120">
+  <img src="Velox/Supporting%20Files/app_logo.png" alt="Velox Logo" width="120">
 </p>
 
 <h1 align="center">Velox</h1>
