@@ -106,6 +106,14 @@ xcodebuild -project Velox.xcodeproj -scheme Velox -configuration Debug build
 - 使用行操作重命名或删除远程文件。
 - 在路径栏输入远程路径后回车跳转。
 
+## 自动发布
+
+推送代码到 `production` 分支会触发 `Build and Release` GitHub Actions workflow。该流程会使用 Release 配置构建 macOS App，将 `Velox.app` 打包为 zip，并发布到 [GitHub Releases](https://github.com/MotorYang/velox/releases)。
+
+当前产物是未签名的 macOS app bundle。若要面向公开用户稳定分发，建议后续补充 Apple Developer 签名与 notarization 配置。
+
+如果发布 runner 是自托管环境，并且需要使用 `127.0.0.1:10808` 本地代理，请把仓库变量 `USE_LOCAL_PROXY` 设置为 `true`。如果使用 GitHub-hosted runner，不要启用该变量，除非代理确实存在于 runner 环境内部。
+
 ## 项目结构
 
 ```text

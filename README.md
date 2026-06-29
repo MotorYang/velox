@@ -106,6 +106,14 @@ After connecting over SSH, Velox opens the remote file pane:
 - Use row actions to rename or delete remote files.
 - Type a remote path in the path bar and press Return to jump.
 
+## Automated Releases
+
+Pushing code to the `production` branch triggers the `Build and Release` GitHub Actions workflow. The workflow builds the macOS app in Release configuration, packages `Velox.app` as a zip, and publishes it to [GitHub Releases](https://github.com/MotorYang/velox/releases).
+
+The generated artifact is currently an unsigned macOS app bundle. For public distribution outside development use, add Apple Developer signing and notarization secrets before publishing a stable release.
+
+If the release runner is self-hosted and needs the local proxy at `127.0.0.1:10808`, set the repository variable `USE_LOCAL_PROXY` to `true`. Do not enable it on GitHub-hosted runners unless that proxy exists inside the runner environment.
+
 ## Project Structure
 
 ```text

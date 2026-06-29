@@ -1,0 +1,78 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - production
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure optional network proxy
+        if: ${{ vars.USE_LOCAL_PROXY == 'true' }}
+        run: |
+          {
+            echo "http_proxy=http://127.0.0.1:10808"
+            echo "https_proxy=http://127.0.0.1:10808"
+            echo "all_proxy=socks5://127.0.0.1:10808"
+            echo "HTTP_PROXY=http://127.0.0.1:10808"
+            echo "HTTPS_PROXY=http://127.0.0.1:10808"
+            echo "ALL_PROXY=socks5://127.0.0.1:10808"
+          } >> "$GITHUB_ENV"
+
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Velox.xcodeproj \
+            -scheme Velox
+
+      - name: Read app version
+        id: version
+        run: |
+          BUILD_SETTINGS="$(xcodebuild -showBuildSettings -project Velox.xcodeproj -scheme Velox -configuration Release)"
+          APP_VERSION="$(printf '%s\n' "$BUILD_SETTINGS" | awk -F '= ' '/MARKETING_VERSION/ { print $2; exit }')"
+          BUILD_NUMBER="$(printf '%s\n' "$BUILD_SETTINGS" | awk -F '= ' '/CURRENT_PROJECT_VERSION/ { print $2; exit }')"
+          TAG="v${APP_VERSION}-build.${BUILD_NUMBER}-${GITHUB_RUN_NUMBER}"
+          echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "build_number=${BUILD_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build release app
+        run: |
+          xcodebuild build \
+            -project Velox.xcodeproj \
+            -scheme Velox \
+            -configuration Release \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
+      - name: Package app
+        run: |
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent \
+            "build/DerivedData/Build/Products/Release/Velox.app" \
+            "dist/Velox-${{ steps.version.outputs.app_version }}-build.${{ steps.version.outputs.build_number }}.zip"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Velox ${{ steps.version.outputs.app_version }} (Build ${{ steps.version.outputs.build_number }})
+          body: |
+            Automated release from the `production` branch.
+
+            - App version: `${{ steps.version.outputs.app_version }}`
+            - Build: `${{ steps.version.outputs.build_number }}`
+            - Commit: `${{ github.sha }}`
+
+            This asset is an unsigned macOS app bundle packaged as a zip.
+          files: dist/*.zip
