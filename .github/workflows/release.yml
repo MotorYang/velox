@@ -73,6 +73,8 @@ jobs:
             -scheme Velox \
             -configuration Release \
             -derivedDataPath build/DerivedData \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO
 
@@ -145,7 +147,7 @@ jobs:
           rm -f dist/Velox-notary.zip
           ditto -c -k --sequesterRsrc --keepParent \
             "build/DerivedData/Build/Products/Release/Velox.app" \
-            "dist/Velox-${{ steps.version.outputs.app_version }}-build.${{ steps.version.outputs.build_number }}-${{ steps.signing.outputs.signing_label }}.zip"
+            "dist/Velox_arm64_v${{ steps.version.outputs.app_version }}.zip"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
@@ -159,6 +161,7 @@ jobs:
             - Build: `${{ steps.version.outputs.build_number }}`
             - Commit: `${{ github.sha }}`
             - Signing: `${{ steps.signing.outputs.signing_label }}`
+            - Asset: `Velox_arm64_v${{ steps.version.outputs.app_version }}.zip`
 
             If Apple Developer notarization secrets are configured, this asset is Developer ID signed, notarized, and stapled.
             Otherwise it is an ad-hoc signed macOS app bundle.

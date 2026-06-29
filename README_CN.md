@@ -108,7 +108,7 @@ xcodebuild -project Velox.xcodeproj -scheme Velox -configuration Debug build
 
 ## 自动发布
 
-推送代码到 `production` 分支会触发 `Build and Release` GitHub Actions workflow。该流程会使用 Release 配置构建 macOS App，将 `Velox.app` 打包为 zip，并发布到 [GitHub Releases](https://github.com/MotorYang/velox/releases)。
+推送代码到 `production` 分支会触发 `Build and Release` GitHub Actions workflow。该流程会使用 Release 配置构建 Apple Silicon 版 macOS App，将 `Velox.app` 打包为 `Velox_arm64_v<version>.zip`，并发布到 [GitHub Releases](https://github.com/MotorYang/velox/releases)。
 
 如果没有 Apple Developer Program 账号，当前产物可以做到 ad-hoc 签名，但不能 notarize。macOS Gatekeeper 首次启动时仍会显示“Apple 无法验证此 App”的提示。
 
