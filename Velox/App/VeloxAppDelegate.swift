@@ -8,6 +8,7 @@ final class VeloxAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         applyDockIcon()
         openMainWindow()
+        checkForUpdatesIfNeeded()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -26,14 +27,25 @@ final class VeloxAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyDockIcon() {
-        if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+        if let iconURL = Bundle.main.url(forResource: "logo", withExtension: "icns"),
            let icon = NSImage(contentsOf: iconURL) {
             NSApp.applicationIconImage = icon
             return
         }
 
-        if let icon = NSImage(named: "AppIcon") {
+        if let icon = NSImage(named: "logo") ?? NSImage(named: "AppIcon") {
             NSApp.applicationIconImage = icon
+        }
+    }
+
+    private func checkForUpdatesIfNeeded() {
+        guard VeloxSettings.shared.automaticallyChecksForUpdates else {
+            return
+        }
+
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            await UpdateManager.shared.checkForUpdates(silent: true)
         }
     }
 }

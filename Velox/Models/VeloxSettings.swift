@@ -66,6 +66,10 @@ final class VeloxSettings: ObservableObject {
         didSet { defaults.set(clamp(transparency, min: 0.05, max: 0.55), forKey: Keys.transparency) }
     }
 
+    @Published var automaticallyChecksForUpdates: Bool {
+        didSet { defaults.set(automaticallyChecksForUpdates, forKey: Keys.automaticallyChecksForUpdates) }
+    }
+
     private let defaults: UserDefaults
 
     private init(defaults: UserDefaults = .standard) {
@@ -87,6 +91,8 @@ final class VeloxSettings: ObservableObject {
 
         let savedTransparency = defaults.double(forKey: Keys.transparency)
         transparency = savedTransparency == 0 ? 0.18 : savedTransparency
+
+        automaticallyChecksForUpdates = defaults.object(forKey: Keys.automaticallyChecksForUpdates) as? Bool ?? true
     }
 
     var terminalFont: NSFont {
@@ -180,4 +186,5 @@ private enum Keys {
     static let appearanceMode = "Velox.Settings.appearanceMode"
     static let isTransparent = "Velox.Settings.isTransparent"
     static let transparency = "Velox.Settings.transparency"
+    static let automaticallyChecksForUpdates = "Velox.Settings.automaticallyChecksForUpdates"
 }

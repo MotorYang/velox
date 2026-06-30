@@ -4,6 +4,8 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
     case profiles = "Profiles"
     case appearance = "Appearance"
     case window = "Window"
+    case about = "About Me"
+    case updates = "Updates"
 
     var id: String { rawValue }
 
@@ -12,6 +14,8 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
         case .profiles: return "terminal"
         case .appearance: return "circle.lefthalf.filled"
         case .window: return "macwindow"
+        case .about: return "info.circle"
+        case .updates: return "arrow.down.circle"
         }
     }
 }
@@ -38,6 +42,10 @@ struct SettingsView: View {
                         AppearanceSettings()
                     case .window:
                         WindowSettings()
+                    case .about:
+                        AboutSettings()
+                    case .updates:
+                        UpdateSettings()
                     }
                 }
                 .padding(24)
@@ -120,6 +128,8 @@ struct SettingsView: View {
         case .profiles: return "Terminal text and font defaults."
         case .appearance: return "Window theme and transparency."
         case .window: return "Default dimensions for terminal windows."
+        case .about: return "Version, author, and project links."
+        case .updates: return "Check, download, and install new releases."
         }
     }
 }
@@ -250,6 +260,146 @@ private struct WindowSettings: View {
                 }
             }
         }
+    }
+}
+
+private struct AboutSettings: View {
+    @ObservedObject private var updateManager = UpdateManager.shared
+
+    var body: some View {
+        SettingsGroup(title: "About Velox") {
+            HStack(alignment: .center, spacing: 14) {
+                Image(nsImage: appIcon)
+                    .resizable()
+                    .frame(width: 64, height: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Velox")
+                        .font(.system(size: 20, weight: .semibold))
+                    Text("Version \(updateManager.currentVersion) (\(updateManager.currentBuild))")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                    Text("Native macOS terminal, SSH, and SFTP client.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button("Website") {
+                    open("https://motoryang.github.io/velox/")
+                }
+
+                Button("GitHub") {
+                    open("https://github.com/MotorYang/velox")
+                }
+
+                Button("Releases") {
+                    open("https://github.com/MotorYang/velox/releases")
+                }
+            }
+
+            LabeledContent("Author") {
+                Text("MotorYang")
+            }
+        }
+    }
+
+    private var appIcon: NSImage {
+        if let iconURL = Bundle.main.url(forResource: "logo", withExtension: "icns"),
+           let icon = NSImage(contentsOf: iconURL) {
+            return icon
+        }
+
+        if let icon = NSImage(named: "logo") ?? NSImage(named: "AppIcon") {
+            return icon
+        }
+
+        return NSApp.applicationIconImage
+    }
+
+    private func open(_ string: String) {
+        guard let url = URL(string: string) else { return }
+        NSWorkspace.shared.open(url)
+    }
+}
+
+private struct UpdateSettings: View {
+    @EnvironmentObject private var settings: VeloxSettings
+    @ObservedObject private var updateManager = UpdateManager.shared
+
+    var body: some View {
+        SettingsGroup(title: "Updates") {
+            Toggle("Automatically Check for Updates", isOn: $settings.automaticallyChecksForUpdates)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(updateManager.updateMessage)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+
+                Text("Current: \(updateManager.currentVersion) (\(updateManager.currentBuild))")
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.secondary)
+
+                if let release = updateManager.latestRelease {
+                    Text("Latest: \(release.version) · \(release.assetName)")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(updateManager.hasAvailableUpdate ? Color.accentColor : .secondary)
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    Task { await updateManager.checkForUpdates() }
+                } label: {
+                    if updateManager.isChecking {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Label("Check Now", systemImage: "arrow.clockwise")
+                    }
+                }
+                .disabled(isBusy)
+
+                Button {
+                    Task { await updateManager.installLatestRelease() }
+                } label: {
+                    if updateManager.isInstalling {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Label("Install Update", systemImage: "square.and.arrow.down.on.square")
+                    }
+                }
+                .disabled(!updateManager.hasAvailableUpdate || isBusy)
+
+                Button {
+                    updateManager.openLatestReleasePage()
+                } label: {
+                    Label("Open Release Page", systemImage: "safari")
+                }
+            }
+
+            Text("Install Update downloads the latest zip, quits Velox, replaces the current app bundle, and relaunches Velox. If macOS blocks the replacement because the app is in a protected location, install the release manually.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("Because Velox is not Apple-notarized, macOS may still ask you to confirm the first launch after an update.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .task {
+            if updateManager.latestRelease == nil {
+                await updateManager.checkForUpdates()
+            }
+        }
+    }
+
+    private var isBusy: Bool {
+        updateManager.isChecking || updateManager.isDownloading || updateManager.isInstalling
     }
 }
 
