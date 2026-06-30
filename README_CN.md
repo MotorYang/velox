@@ -12,6 +12,10 @@
   <a href="README.md">English</a> | 简体中文
 </p>
 
+<p align="center">
+  <a href="https://motoryang.github.io/velox/">工具介绍页面</a>
+</p>
+
 ## 项目简介
 
 Velox 是一款面向 macOS 的原生终端与 SSH/SFTP 客户端。项目使用 SwiftUI 和 AppKit 构建桌面体验，使用 SwiftTerm 渲染终端，使用 Citadel、SwiftNIO 和 Swift Crypto 提供纯 Swift 的 SSH 与 SFTP 能力。

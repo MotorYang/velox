@@ -12,6 +12,10 @@
   English | <a href="README_CN.md">简体中文</a>
 </p>
 
+<p align="center">
+  <a href="https://motoryang.github.io/velox/">Website</a>
+</p>
+
 ## Overview
 
 Velox is a native macOS terminal and SSH/SFTP client. It uses SwiftUI and AppKit for the desktop experience, SwiftTerm for terminal rendering, and Citadel, SwiftNIO, and Swift Crypto for pure Swift SSH and SFTP support.
