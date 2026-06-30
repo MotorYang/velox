@@ -40,9 +40,11 @@ jobs:
           BUILD_SETTINGS="$(xcodebuild -showBuildSettings -project Velox.xcodeproj -scheme Velox -configuration Release)"
           APP_VERSION="$(printf '%s\n' "$BUILD_SETTINGS" | awk -F '= ' '/MARKETING_VERSION/ { print $2; exit }')"
           BUILD_NUMBER="$(printf '%s\n' "$BUILD_SETTINGS" | awk -F '= ' '/CURRENT_PROJECT_VERSION/ { print $2; exit }')"
-          TAG="v${APP_VERSION}-build.${BUILD_NUMBER}-${GITHUB_RUN_NUMBER}"
+          FULL_VERSION="${APP_VERSION}.${BUILD_NUMBER}"
+          TAG="v${FULL_VERSION}-${GITHUB_RUN_NUMBER}"
           echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
           echo "build_number=${BUILD_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "full_version=${FULL_VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Check notarization secrets
@@ -147,21 +149,20 @@ jobs:
           rm -f dist/Velox-notary.zip
           ditto -c -k --sequesterRsrc --keepParent \
             "build/DerivedData/Build/Products/Release/Velox.app" \
-            "dist/Velox_arm64_v${{ steps.version.outputs.app_version }}.zip"
+            "dist/Velox_arm64_v${{ steps.version.outputs.full_version }}.zip"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          name: Velox ${{ steps.version.outputs.app_version }} (Build ${{ steps.version.outputs.build_number }})
+          name: Velox ${{ steps.version.outputs.full_version }}
           body: |
             Automated release from the `production` branch.
 
-            - App version: `${{ steps.version.outputs.app_version }}`
-            - Build: `${{ steps.version.outputs.build_number }}`
+            - Version: `Velox ${{ steps.version.outputs.full_version }}`
             - Commit: `${{ github.sha }}`
             - Signing: `${{ steps.signing.outputs.signing_label }}`
-            - Asset: `Velox_arm64_v${{ steps.version.outputs.app_version }}.zip`
+            - Asset: `Velox_arm64_v${{ steps.version.outputs.full_version }}.zip`
 
             If Apple Developer notarization secrets are configured, this asset is Developer ID signed, notarized, and stapled.
             Otherwise it is an ad-hoc signed macOS app bundle.

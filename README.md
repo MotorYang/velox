@@ -112,7 +112,7 @@ After connecting over SSH, Velox opens the remote file pane:
 
 ## Automated Releases
 
-Pushing code to the `production` branch triggers the `Build and Release` GitHub Actions workflow. The workflow builds the macOS app in Release configuration for Apple Silicon, packages `Velox.app` as `Velox_arm64_v<version>.zip`, and publishes it to [GitHub Releases](https://github.com/MotorYang/velox/releases).
+Pushing code to the `production` branch triggers the `Build and Release` GitHub Actions workflow. The workflow builds the macOS app in Release configuration for Apple Silicon, packages `Velox.app` as `Velox_arm64_v<app-version>.<build-number>.zip`, and publishes it to [GitHub Releases](https://github.com/MotorYang/velox/releases).
 
 Without an Apple Developer Program account, the generated artifact is ad-hoc signed but not notarized. macOS Gatekeeper will still show an "Apple cannot verify this app" warning on first launch.
 

@@ -277,7 +277,7 @@ private struct AboutSettings: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Velox")
                         .font(.system(size: 20, weight: .semibold))
-                    Text("Version \(updateManager.currentVersion) (\(updateManager.currentBuild))")
+                    Text(updateManager.displayVersion)
                         .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(.secondary)
                     Text("Native macOS terminal, SSH, and SFTP client.")
@@ -338,7 +338,7 @@ private struct UpdateSettings: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
 
-                Text("Current: \(updateManager.currentVersion) (\(updateManager.currentBuild))")
+                Text("Current: \(updateManager.displayVersion)")
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(.secondary)
 

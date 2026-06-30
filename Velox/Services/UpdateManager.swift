@@ -37,9 +37,17 @@ final class UpdateManager: ObservableObject {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
     }
 
+    var displayVersion: String {
+        "Velox \(currentFullVersion)"
+    }
+
+    private var currentFullVersion: String {
+        "\(currentVersion).\(currentBuild)"
+    }
+
     var hasAvailableUpdate: Bool {
         guard let latestRelease else { return false }
-        return Self.compareVersions(latestRelease.version, currentVersion) == .orderedDescending
+        return Self.compareVersions(latestRelease.version, currentFullVersion) == .orderedDescending
     }
 
     func checkForUpdates(silent: Bool = false) async {
@@ -52,7 +60,7 @@ final class UpdateManager: ObservableObject {
             latestRelease = release
             downloadedFileURL = nil
 
-            if Self.compareVersions(release.version, currentVersion) == .orderedDescending {
+            if Self.compareVersions(release.version, currentFullVersion) == .orderedDescending {
                 updateMessage = "Velox \(release.version) is available."
             } else if !silent {
                 updateMessage = "Velox is up to date."
