@@ -7,6 +7,7 @@ struct TerminalViewBridge: NSViewRepresentable {
     @ObservedObject var settings: VeloxSettings
     var serverStore: ServerDirectoryStore? = nil
     var connectProfile: (@MainActor (ServerProfile) -> Void)? = nil
+    var openServerManager: (@MainActor () -> Void)? = nil
 
     final class Coordinator: NSObject, TerminalViewDelegate {
         let sessionManager: TerminalSessionManager
@@ -57,7 +58,7 @@ struct TerminalViewBridge: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> TerminalView {
-        let view = TerminalView()
+        let view = VeloxTerminalView()
         view.terminalDelegate = context.coordinator
         view.metalBufferingMode = .perFrameAggregated
         try? view.setUseMetal(false)
@@ -66,7 +67,8 @@ struct TerminalViewBridge: NSViewRepresentable {
         TerminalContextMenuInstaller.install(
             on: view,
             serverStore: serverStore,
-            connectProfile: connectProfile
+            connectProfile: connectProfile,
+            openServerManager: openServerManager
         )
         view.feed(text: "\(sessionManager.statusMessage)\r\n")
 
@@ -81,7 +83,8 @@ struct TerminalViewBridge: NSViewRepresentable {
         TerminalContextMenuInstaller.install(
             on: nsView,
             serverStore: serverStore,
-            connectProfile: connectProfile
+            connectProfile: connectProfile,
+            openServerManager: openServerManager
         )
         startBridge(afterViewUpdate: nsView, context: context)
         nsView.needsDisplay = true
@@ -94,6 +97,7 @@ struct TerminalViewBridge: NSViewRepresentable {
         view.nativeBackgroundColor = settings.terminalSurfaceBackgroundColor
         view.nativeForegroundColor = settings.terminalForegroundColor
         view.font = settings.terminalFont
+        view.allowMouseReporting = false
     }
 
     private func startBridge(afterViewUpdate view: TerminalView, context: Context) {

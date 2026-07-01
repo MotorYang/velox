@@ -27,6 +27,7 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
     var privateKeyPath: String
     var hasStoredSecret: Bool
     var lastConnectedAt: Date?
+    var sortOrder: Int
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -39,6 +40,7 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
         case privateKeyPath
         case hasStoredSecret
         case lastConnectedAt
+        case sortOrder
     }
 
     init(
@@ -51,7 +53,8 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
         authenticationMethod: ServerAuthenticationMethod = .password,
         privateKeyPath: String = "",
         hasStoredSecret: Bool = false,
-        lastConnectedAt: Date? = nil
+        lastConnectedAt: Date? = nil,
+        sortOrder: Int = 0
     ) {
         self.id = id
         self.name = name
@@ -63,6 +66,7 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
         self.privateKeyPath = privateKeyPath
         self.hasStoredSecret = hasStoredSecret
         self.lastConnectedAt = lastConnectedAt
+        self.sortOrder = sortOrder
     }
 
     init(from decoder: Decoder) throws {
@@ -78,5 +82,6 @@ struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
         privateKeyPath = try container.decodeIfPresent(String.self, forKey: .privateKeyPath) ?? ""
         hasStoredSecret = try container.decodeIfPresent(Bool.self, forKey: .hasStoredSecret) ?? (decodedAuthenticationMethod == .password)
         lastConnectedAt = try container.decodeIfPresent(Date.self, forKey: .lastConnectedAt)
+        sortOrder = try container.decodeIfPresent(Int.self, forKey: .sortOrder) ?? 0
     }
 }
