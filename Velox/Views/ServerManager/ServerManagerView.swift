@@ -7,6 +7,7 @@
 
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - 焦点与字段定义
 private enum Field: Hashable {
@@ -33,6 +34,8 @@ struct ServerManagerView: View {
     // 文件夹内联重命名的状态控制
     @State private var editingFolderName: String? = nil
     @State private var folderRenameBuffer: String = ""
+    @State private var draggedProfileID: UUID?
+    @State private var draggedFolder: String?
 
     private let openPreferenceKey = "Velox.ServerOpenPreference.v1"
 
@@ -186,15 +189,12 @@ struct ServerManagerView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    let groupedProfiles = Dictionary(grouping: serverStore.profiles, by: { $0.group })
-
                     if serverStore.profiles.isEmpty {
                         emptyState
                     }
 
-                    ForEach(serverStore.folders, id: \.self) { folder in
-                        let profiles = groupedProfiles[folder] ?? []
-                        folderSection(folder: folder, profiles: profiles)
+                    ForEach(serverStore.childFolders(of: nil), id: \.self) { folder in
+                        folderSection(folder: folder, depth: 0)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -234,14 +234,16 @@ struct ServerManagerView: View {
         }
     }
 
-    private func folderSection(folder: String, profiles: [ServerProfile]) -> some View {
+    private func folderSection(folder: String, depth: Int) -> AnyView {
         let isExpanded = expandedFolders[folder, default: true]
+        let profiles = serverStore.profiles.filter { $0.group == folder }
+        let childFolders = serverStore.childFolders(of: folder)
 
-        return VStack(alignment: .leading, spacing: 5) {
-            folderHeader(folder: folder, count: profiles.count, isExpanded: isExpanded)
+        return AnyView(VStack(alignment: .leading, spacing: 5) {
+            folderHeader(folder: folder, count: profiles.count, isExpanded: isExpanded, depth: depth)
 
             if isExpanded {
-                if profiles.isEmpty {
+                if profiles.isEmpty && childFolders.isEmpty {
                     HStack(spacing: 8) {
                         Image(systemName: "tray")
                             .frame(width: 16)
@@ -254,17 +256,24 @@ struct ServerManagerView: View {
                 } else {
                     ForEach(profiles) { profile in
                         serverTreeRow(profile)
-                            .padding(.leading, 26)
+                            .padding(.leading, CGFloat(depth + 1) * 22)
+                    }
+
+                    ForEach(childFolders, id: \.self) { childFolder in
+                        folderSection(folder: childFolder, depth: depth + 1)
                     }
                 }
             }
         }
         .padding(.vertical, 5)
         .background(.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 8))
+        .onDrop(of: [.plainText], isTargeted: nil) { _ in
+            moveDraggedItem(into: folder)
+        })
     }
 
     // MARK: - 文件夹头部样式 (带右键菜单与内联编辑)
-    private func folderHeader(folder: String, count: Int, isExpanded: Bool) -> some View {
+    private func folderHeader(folder: String, count: Int, isExpanded: Bool, depth: Int) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "chevron.right")
                 .font(.system(size: 10, weight: .bold))
@@ -289,7 +298,7 @@ struct ServerManagerView: View {
                 .frame(maxWidth: 220)
                 .onTapGesture {}
             } else {
-                Text(folder)
+                Text(serverStore.folderDisplayName(folder))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.85))
             }
@@ -304,6 +313,7 @@ struct ServerManagerView: View {
                 .background(.white.opacity(0.06), in: Capsule())
         }
         .padding(.horizontal, 10)
+        .padding(.leading, CGFloat(depth) * 18)
         .contentShape(Rectangle())
         .frame(height: 36)
         .background(
@@ -326,6 +336,14 @@ struct ServerManagerView: View {
             } label: {
                 Label("New Server Here", systemImage: "plus")
             }
+
+            Button {
+                selectedFolder = folder
+                selectedProfileID = nil
+                createFolder(in: folder)
+            } label: {
+                Label("New Folder Here", systemImage: "folder.badge.plus")
+            }
             
             Divider()
             
@@ -342,6 +360,14 @@ struct ServerManagerView: View {
             } label: {
                 Label("Delete Folder", systemImage: "trash")
             }
+        }
+        .opacity(draggedFolder == folder ? 0.45 : 1)
+        .onDrag {
+            draggedFolder = folder
+            return NSItemProvider(object: folder as NSString)
+        }
+        .onDrop(of: [.plainText], isTargeted: nil) { _ in
+            moveDraggedItem(beforeFolder: folder)
         }
     }
 
@@ -379,7 +405,15 @@ struct ServerManagerView: View {
             selectedProfileID == profile.id ? Color.blue.opacity(0.24) : Color.clear,
             in: RoundedRectangle(cornerRadius: 7)
         )
+        .opacity(draggedProfileID == profile.id ? 0.45 : 1)
         .contentShape(Rectangle())
+        .onDrag {
+            draggedProfileID = profile.id
+            return NSItemProvider(object: profile.id.uuidString as NSString)
+        }
+        .onDrop(of: [.plainText], isTargeted: nil) { _ in
+            moveDraggedProfile(to: profile.group, before: profile.id)
+        }
         .onTapGesture {
             selectedProfileID = profile.id
             selectedFolder = profile.group
@@ -432,7 +466,7 @@ struct ServerManagerView: View {
 
     // MARK: - 内部控制逻辑
     private func startRenameFolder(_ folder: String) {
-        folderRenameBuffer = folder
+        folderRenameBuffer = serverStore.folderDisplayName(folder)
         editingFolderName = folder
     }
 
@@ -440,23 +474,27 @@ struct ServerManagerView: View {
         let trimmed = folderRenameBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
         
         // 核心修正 2：调用持久层进行文件夹改名，并重映射其下所有 Server 关联的 group
-        if !trimmed.isEmpty && trimmed != oldName && !serverStore.folders.contains(trimmed) {
-            serverStore.renameFolder(from: oldName, to: trimmed)
-            selectedFolder = trimmed
+        if !trimmed.isEmpty, let renamedFolder = serverStore.renameFolder(from: oldName, to: trimmed) {
+            selectedFolder = renamedFolder
         }
         editingFolderName = nil
     }
 
     private func createFolder() {
+        createFolder(in: selectedFolder)
+    }
+
+    private func createFolder(in parentFolder: String) {
         let baseName = "New Folder"
         var candidate = baseName
         var suffix = 2
-        while serverStore.folders.contains(candidate) {
+        while serverStore.childFolders(of: parentFolder).contains(where: { serverStore.folderDisplayName($0) == candidate }) {
             candidate = "\(baseName) \(suffix)"
             suffix += 1
         }
-        selectedFolder = serverStore.createFolder(named: candidate)
+        selectedFolder = serverStore.createFolder(named: candidate, in: parentFolder)
         expandedFolders[selectedFolder] = true
+        expandedFolders[parentFolder] = true
         selectedProfileID = nil
         
         // 创建后自动切入重命名状态
@@ -489,6 +527,69 @@ struct ServerManagerView: View {
         guard let selectedProfile else { return }
         serverStore.delete(selectedProfile)
         selectedProfileID = nil
+    }
+
+    private func moveDraggedProfile(to folder: String, before targetProfileID: UUID? = nil) -> Bool {
+        guard let draggedProfileID, draggedProfileID != targetProfileID else {
+            self.draggedProfileID = nil
+            return false
+        }
+
+        serverStore.moveProfile(draggedProfileID, toFolder: folder, before: targetProfileID)
+        selectedProfileID = draggedProfileID
+        selectedFolder = folder
+        expandedFolders[folder] = true
+        self.draggedProfileID = nil
+        return true
+    }
+
+    private func moveDraggedItem(into folder: String) -> Bool {
+        if draggedProfileID != nil {
+            return moveDraggedProfile(to: folder)
+        }
+
+        guard let draggedFolder else {
+            return false
+        }
+
+        guard let movedFolder = serverStore.moveFolder(draggedFolder, toParent: folder) else {
+            self.draggedFolder = nil
+            return false
+        }
+
+        selectedFolder = movedFolder
+        selectedProfileID = nil
+        expandedFolders[folder] = true
+        expandedFolders[movedFolder] = true
+        self.draggedFolder = nil
+        return true
+    }
+
+    private func moveDraggedItem(beforeFolder targetFolder: String) -> Bool {
+        if draggedProfileID != nil {
+            return moveDraggedProfile(to: targetFolder)
+        }
+
+        guard let draggedFolder else {
+            return false
+        }
+
+        guard let movedFolder = serverStore.moveFolder(
+            draggedFolder,
+            toParent: serverStore.parentFolder(of: targetFolder),
+            before: targetFolder
+        ) else {
+            self.draggedFolder = nil
+            return false
+        }
+
+        selectedFolder = movedFolder
+        selectedProfileID = nil
+        if let parent = serverStore.parentFolder(of: movedFolder) {
+            expandedFolders[parent] = true
+        }
+        self.draggedFolder = nil
+        return true
     }
 
     private func requestOpen(_ profile: ServerProfile) {

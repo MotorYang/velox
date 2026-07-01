@@ -7,6 +7,7 @@ struct RemoteShellSplitView: View {
     @Binding var showsFilePane: Bool
     var serverStore: ServerDirectoryStore? = nil
     var connectProfile: (@MainActor (ServerProfile) -> Void)? = nil
+    var openServerManager: (@MainActor () -> Void)? = nil
     @State private var filePaneWidth: CGFloat = 300
     @State private var dragStartWidth: CGFloat?
     @State private var selectedFileID: RemoteFile.ID?
@@ -25,7 +26,8 @@ struct RemoteShellSplitView: View {
                     sessionManager: sessionManager,
                     settings: settings,
                     serverStore: serverStore,
-                    connectProfile: connectProfile
+                    connectProfile: connectProfile,
+                    openServerManager: openServerManager
                 )
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
