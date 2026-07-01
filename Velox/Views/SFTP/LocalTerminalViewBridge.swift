@@ -7,6 +7,7 @@ struct LocalTerminalViewBridge: NSViewRepresentable {
     @ObservedObject var serverStore: ServerDirectoryStore
     @Binding var currentDirectory: String
     let connectProfile: @MainActor (ServerProfile) -> Void
+    let openServerManager: @MainActor () -> Void
 
     func makeNSView(context: Context) -> LocalTerminalContainerView {
         let view = LocalTerminalContainerView(settings: settings)
@@ -15,6 +16,7 @@ struct LocalTerminalViewBridge: NSViewRepresentable {
         }
         view.serverStore = serverStore
         view.connectProfile = connectProfile
+        view.openServerManager = openServerManager
         return view
     }
 
@@ -24,6 +26,7 @@ struct LocalTerminalViewBridge: NSViewRepresentable {
         }
         nsView.serverStore = serverStore
         nsView.connectProfile = connectProfile
+        nsView.openServerManager = openServerManager
         nsView.apply(settings: settings)
         nsView.scheduleStart()
         nsView.requestFocus()
@@ -43,6 +46,7 @@ final class LocalTerminalContainerView: NSView, @preconcurrency LocalProcessTerm
     var onCurrentDirectoryChange: ((String) -> Void)?
     weak var serverStore: ServerDirectoryStore?
     var connectProfile: (@MainActor (ServerProfile) -> Void)?
+    var openServerManager: (@MainActor () -> Void)?
 
     init(settings: VeloxSettings) {
         self.settings = settings
@@ -120,7 +124,8 @@ final class LocalTerminalContainerView: NSView, @preconcurrency LocalProcessTerm
         TerminalContextMenuInstaller.install(
             on: terminalView,
             serverStore: serverStore,
-            connectProfile: connectProfile
+            connectProfile: connectProfile,
+            openServerManager: openServerManager
         )
         terminalView.needsDisplay = true
     }

@@ -9,10 +9,15 @@ enum TerminalContextMenuInstaller {
     static func install(
         on terminalView: TerminalView,
         serverStore: ServerDirectoryStore? = nil,
-        connectProfile: (@MainActor (ServerProfile) -> Void)? = nil
+        connectProfile: (@MainActor (ServerProfile) -> Void)? = nil,
+        openServerManager: (@MainActor () -> Void)? = nil
     ) {
         let controller = contextMenuController(for: terminalView)
-        controller.configure(serverStore: serverStore, connectProfile: connectProfile)
+        controller.configure(
+            serverStore: serverStore,
+            connectProfile: connectProfile,
+            openServerManager: openServerManager
+        )
         terminalView.menu = controller.makeMenu()
     }
 
@@ -32,6 +37,7 @@ private final class TerminalContextMenuController: NSObject, NSMenuDelegate {
     private weak var terminalView: TerminalView?
     private weak var serverStore: ServerDirectoryStore?
     private var connectProfile: (@MainActor (ServerProfile) -> Void)?
+    private var openServerManager: (@MainActor () -> Void)?
 
     init(terminalView: TerminalView) {
         self.terminalView = terminalView
@@ -39,10 +45,12 @@ private final class TerminalContextMenuController: NSObject, NSMenuDelegate {
 
     func configure(
         serverStore: ServerDirectoryStore?,
-        connectProfile: (@MainActor (ServerProfile) -> Void)?
+        connectProfile: (@MainActor (ServerProfile) -> Void)?,
+        openServerManager: (@MainActor () -> Void)?
     ) {
         self.serverStore = serverStore
         self.connectProfile = connectProfile
+        self.openServerManager = openServerManager
     }
 
     func makeMenu() -> NSMenu {
@@ -51,7 +59,7 @@ private final class TerminalContextMenuController: NSObject, NSMenuDelegate {
         menu.addItem(menuItem("Copy", action: #selector(copy(_:)), key: "c"))
         menu.addItem(menuItem("Paste", action: #selector(paste(_:)), key: "v"))
         menu.addItem(menuItem("Select All", action: #selector(selectAll(_:)), key: "a"))
-        if serverStore != nil, connectProfile != nil {
+        if serverStore != nil, connectProfile != nil || openServerManager != nil {
             menu.addItem(.separator())
             menu.addItem(connectServerMenuItem())
         }
@@ -69,6 +77,8 @@ private final class TerminalContextMenuController: NSObject, NSMenuDelegate {
                 item.isEnabled = NSPasteboard.general.string(forType: .string) != nil
             case #selector(connectServer(_:)):
                 item.isEnabled = connectProfile != nil
+            case #selector(openServerManager(_:)):
+                item.isEnabled = openServerManager != nil
             default:
                 item.isEnabled = true
             }
@@ -108,6 +118,10 @@ private final class TerminalContextMenuController: NSObject, NSMenuDelegate {
         connectProfile?(profile)
     }
 
+    @objc private func openServerManager(_ sender: Any?) {
+        openServerManager?()
+    }
+
     private func menuItem(_ title: String, action: Selector, key: String = "") -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.target = self
@@ -123,6 +137,15 @@ private final class TerminalContextMenuController: NSObject, NSMenuDelegate {
 
     private func makeConnectServerSubmenu() -> NSMenu {
         let menu = NSMenu(title: "Connect Server")
+
+        if openServerManager != nil {
+            let managerItem = NSMenuItem(title: "Manage Servers...", action: #selector(openServerManager(_:)), keyEquivalent: "")
+            managerItem.target = self
+            managerItem.image = NSImage(systemSymbolName: "server.rack", accessibilityDescription: "Manage Servers")
+            menu.addItem(managerItem)
+            menu.addItem(.separator())
+        }
+
         guard let serverStore else { return menu }
 
         if serverStore.profiles.isEmpty {

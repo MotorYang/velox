@@ -7,6 +7,7 @@ struct TerminalViewBridge: NSViewRepresentable {
     @ObservedObject var settings: VeloxSettings
     var serverStore: ServerDirectoryStore? = nil
     var connectProfile: (@MainActor (ServerProfile) -> Void)? = nil
+    var openServerManager: (@MainActor () -> Void)? = nil
 
     final class Coordinator: NSObject, TerminalViewDelegate {
         let sessionManager: TerminalSessionManager
@@ -66,7 +67,8 @@ struct TerminalViewBridge: NSViewRepresentable {
         TerminalContextMenuInstaller.install(
             on: view,
             serverStore: serverStore,
-            connectProfile: connectProfile
+            connectProfile: connectProfile,
+            openServerManager: openServerManager
         )
         view.feed(text: "\(sessionManager.statusMessage)\r\n")
 
@@ -81,7 +83,8 @@ struct TerminalViewBridge: NSViewRepresentable {
         TerminalContextMenuInstaller.install(
             on: nsView,
             serverStore: serverStore,
-            connectProfile: connectProfile
+            connectProfile: connectProfile,
+            openServerManager: openServerManager
         )
         startBridge(afterViewUpdate: nsView, context: context)
         nsView.needsDisplay = true

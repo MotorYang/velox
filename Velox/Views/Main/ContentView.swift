@@ -32,14 +32,16 @@ struct ContentView: View {
                     sessionManager: sessionManager,
                     showsFilePane: $showsSFTPPane,
                     serverStore: serverStore,
-                    connectProfile: connectServerFromContextMenu
+                    connectProfile: connectServerFromContextMenu,
+                    openServerManager: openServerManager
                 )
             } else {
                 LocalTerminalViewBridge(
                     settings: settings,
                     serverStore: serverStore,
                     currentDirectory: $localCurrentDirectory,
-                    connectProfile: connectServerFromContextMenu
+                    connectProfile: connectServerFromContextMenu,
+                    openServerManager: openServerManager
                 )
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
