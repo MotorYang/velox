@@ -57,7 +57,7 @@ struct TerminalViewBridge: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> TerminalView {
-        let view = TerminalView()
+        let view = VeloxTerminalView()
         view.terminalDelegate = context.coordinator
         view.metalBufferingMode = .perFrameAggregated
         try? view.setUseMetal(false)
@@ -94,6 +94,7 @@ struct TerminalViewBridge: NSViewRepresentable {
         view.nativeBackgroundColor = settings.terminalSurfaceBackgroundColor
         view.nativeForegroundColor = settings.terminalForegroundColor
         view.font = settings.terminalFont
+        view.allowMouseReporting = false
     }
 
     private func startBridge(afterViewUpdate view: TerminalView, context: Context) {

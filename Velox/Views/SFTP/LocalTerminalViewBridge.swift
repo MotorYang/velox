@@ -36,7 +36,7 @@ struct LocalTerminalViewBridge: NSViewRepresentable {
 
 @MainActor
 final class LocalTerminalContainerView: NSView, @preconcurrency LocalProcessTerminalViewDelegate {
-    private let terminalView = LocalProcessTerminalView(frame: .zero)
+    private let terminalView = VeloxLocalProcessTerminalView(frame: .zero)
     private var settings: VeloxSettings
     private var didStartProcess = false
     private var hasQueuedStart = false
@@ -115,6 +115,7 @@ final class LocalTerminalContainerView: NSView, @preconcurrency LocalProcessTerm
         terminalView.nativeBackgroundColor = settings.terminalSurfaceBackgroundColor
         terminalView.nativeForegroundColor = settings.terminalForegroundColor
         terminalView.font = settings.terminalFont
+        terminalView.allowMouseReporting = false
         TerminalChromeStyler.apply(to: terminalView)
         TerminalContextMenuInstaller.install(
             on: terminalView,
