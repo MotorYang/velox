@@ -151,25 +151,42 @@ jobs:
             "build/DerivedData/Build/Products/Release/Velox.app" \
             "dist/Velox_arm64_v${{ steps.version.outputs.full_version }}.zip"
 
+      - name: Prepare release notes
+        run: |
+          mkdir -p dist
+          APP_VERSION="${{ steps.version.outputs.app_version }}"
+          FULL_VERSION="${{ steps.version.outputs.full_version }}"
+          ASSET_NAME="Velox_arm64_v${FULL_VERSION}.zip"
+          CHANGELOG_SECTION="$(awk -v version="$APP_VERSION" '
+            $0 == "## " version { capture = 1; next }
+            capture && /^## / { exit }
+            capture { print }
+          ' CHANGELOG.md | sed '/^[[:space:]]*$/d')"
+
+          if [ -z "$CHANGELOG_SECTION" ]; then
+            CHANGELOG_SECTION="$(printf '### Changes\n- See the commit history for changes included in this release.')"
+          fi
+
+          cat > dist/release-notes.md <<EOF
+          # Velox ${FULL_VERSION}
+
+          ${CHANGELOG_SECTION}
+
+          ### Download
+          - Asset: \`${ASSET_NAME}\`
+          - Commit: \`${GITHUB_SHA}\`
+          - Signing: \`${{ steps.signing.outputs.signing_label }}\`
+
+          ### Installation
+          Download \`${ASSET_NAME}\`, unzip it, and move \`Velox.app\` to Applications.
+
+          If this build is ad-hoc signed, macOS Gatekeeper may show an "Apple cannot verify this app" warning on first launch. Right-click \`Velox.app\`, choose Open, then confirm Open. If needed, open System Settings > Privacy & Security and choose Open Anyway.
+          EOF
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: Velox ${{ steps.version.outputs.full_version }}
-          body: |
-            Automated release from the `production` branch.
-
-            - Version: `Velox ${{ steps.version.outputs.full_version }}`
-            - Commit: `${{ github.sha }}`
-            - Signing: `${{ steps.signing.outputs.signing_label }}`
-            - Asset: `Velox_arm64_v${{ steps.version.outputs.full_version }}.zip`
-
-            If Apple Developer notarization secrets are configured, this asset is Developer ID signed, notarized, and stapled.
-            Otherwise it is an ad-hoc signed macOS app bundle.
-
-            For the ad-hoc build, macOS Gatekeeper will still show an "Apple cannot verify this app" warning on first launch because the app is not notarized. Open it with one of these methods:
-
-            1. Right-click `Velox.app`, choose Open, then confirm Open.
-            2. Or open System Settings > Privacy & Security, then choose Open Anyway after the first blocked launch.
-            3. For local testing only, you can remove the quarantine flag with `xattr -dr com.apple.quarantine /Applications/Velox.app`.
+          body_path: dist/release-notes.md
           files: dist/*.zip
